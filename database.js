@@ -9,7 +9,7 @@ const pool = new Pool({
     }
 });
 
-// Initialize Table if not exists
+// Initialize Table (Automatically fixes the NULL error for new tables)
 const initDb = async () => {
     const query = `
     CREATE TABLE IF NOT EXISTS trades (
@@ -22,16 +22,16 @@ const initDb = async () => {
         tp1_price DECIMAL DEFAULT 0,
         tp2_price DECIMAL DEFAULT 0,
         tp3_price DECIMAL DEFAULT 0,
-        status VARCHAR(20) DEFAULT 'OPEN',
-        pips_gained DECIMAL DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'SIGNAL',
+        points_gained DECIMAL DEFAULT 0,
         telegram_msg_id BIGINT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at VARCHAR(50),
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     `;
     try {
         await pool.query(query);
-        console.log("✅ Database Table Verified/Created");
+        console.log("✅ Database Table Verified/Created with Fixes");
     } catch (err) {
         console.error("❌ Database Error:", err);
     }
