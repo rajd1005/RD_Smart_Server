@@ -217,6 +217,44 @@ app.get('/api/trades', async (req, res) => {
     } catch (err) { res.json([]); }
 });
 
+// --- 4. INSTANT EVENT LOGGER (Backup for Heartbeat) ---
+app.post('/api/log_event', async (req, res) => {
+    const { trade_id, new_status, price } = req.body;
+    
+    try {
+        // 1. Get current trade status from DB
+        const result = await pool.query("SELECT * FROM trades WHERE trade_id = $1", [trade_id]);
+        if (result.rows.length === 0) return res.json({ success: false, msg: "Trade not found" });
+
+        const trade = result.rows[0];
+        
+        // 2. Define Priority (To prevent downgrading status)
+        const priorities = { 'SIGNAL':0, 'SETUP':1, 'ACTIVE':2, 'TP1 HIT':3, 'TP2 HIT':4, 'TP3 HIT':5, 'SL HIT':99, 'CLOSED':99 };
+        const currentP = priorities[trade.status] || 0;
+        const newP = priorities[new_status] || 0;
+
+        // 3. Update ONLY if new status is "Higher" priority (or if we are forcing a Close/SL)
+        // e.g., If DB says "ACTIVE" and MT4 says "TP1 HIT" -> Update.
+        // e.g., If DB says "TP2 HIT" and MT4 says "TP1 HIT" -> Ignore (Heartbeat was faster).
+        if (newP > currentP) {
+            
+            // Calculate Points Locked
+            let points = calculatePoints(trade.type, trade.entry_price, price);
+            
+            await pool.query(
+                "UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3",
+                [new_status, points, trade_id]
+            );
+
+            // Send Telegram Alert
+            bot.sendMessage(process.env.TG_CHAT_ID, `⚡ **INSTANT UPDATE**\n${trade.symbol}: ${new_status}\nPrice: ${price}`);
+            console.log(`⚡ Instant Update: ${trade.symbol} -> ${new_status}`);
+        }
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
     app.listen(PORT, () => console.log(`🚀 Trade Manager running on ${PORT}`));
