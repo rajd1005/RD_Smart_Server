@@ -20,35 +20,41 @@ function getISTTime() {
 // HELPER: Calculate Points
 function calculatePoints(type, entry, close) {
     let raw = (type === 'BUY') ? (close - entry) : (entry - close);
+    // Standardizing points (Optional: You can adjust this multiplier if needed)
     return raw; 
 }
 
-// --- 1. SIGNAL DETECTED (SILENT - DB ONLY) ---
+// --- 1. SIGNAL DETECTED (Arrow) ---
 app.post('/api/signal_detected', async (req, res) => {
-    const { trade_id, symbol, type, time } = req.body;
-    const createdTime = time ? time : getISTTime();
+    const { trade_id, symbol, type } = req.body;
+    const istTime = getISTTime();
 
     try {
+        const msg = `⚠️ **NEW SIGNAL**\nSymbol: ${symbol}\nType: ${type}\nTime: ${istTime}`;
+        bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' });
+
+        // Insert Signal (Status: SIGNAL)
         const query = `
-            INSERT INTO trades (trade_id, symbol, type, created_at, status)
-            VALUES ($1, $2, $3, $4, 'SIGNAL')
+            INSERT INTO trades (trade_id, symbol, type, telegram_msg_id, created_at, status)
+            VALUES ($1, $2, $3, $4, $5, 'SIGNAL')
             ON CONFLICT (trade_id) DO NOTHING;
         `;
-        await pool.query(query, [trade_id, symbol, type, createdTime]);
-        console.log(`[SILENT] Signal Captured: ${trade_id}`);
+        // We catch the message ID in a variable to avoid blocking response
+        bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' }).then(sent => {
+             pool.query(query, [trade_id, symbol, type, sent.message_id, istTime]);
+        });
+
         res.json({ success: true });
-    } catch (err) { 
-        console.error("Signal Insert Error:", err.message);
-        res.status(500).json({ error: err.message }); 
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 2. SETUP CONFIRMED (ROBUST - SELF HEALING) ---
+// --- 2. SETUP CONFIRMED (Entry/SL/TP) + FORCE CLOSE LOGIC ---
 app.post('/api/setup_confirmed', async (req, res) => {
     const { trade_id, symbol, type, entry, sl, tp1, tp2, tp3, current_ltp } = req.body;
 
     try {
-        // A. Close Old Trades
+        // --- STEP A: FORCE CLOSE OLD TRADES ---
+        // Find any OPEN trade for this Symbol that is NOT the current new one
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE', 'TP1', 'TP2') AND trade_id != $2",
             [symbol, trade_id]
@@ -58,134 +64,124 @@ app.post('/api/setup_confirmed', async (req, res) => {
             let closeStatus = "CLOSED (Reversal)";
             let finalPoints = 0;
 
-            if (oldTrade.status === 'ACTIVE') {
+            if (oldTrade.status === 'SIGNAL' || oldTrade.status === 'SETUP') {
+                closeStatus = "EXPIRED"; // Pending trade never triggered
+                finalPoints = 0;
+            } 
+            else if (oldTrade.status.includes('TP')) {
+                // Profit ALREADY Locked at TP. Do not recalculate.
+                closeStatus = `CLOSED (${oldTrade.status})`;
+                finalPoints = oldTrade.points_gained; 
+            } 
+            else if (oldTrade.status === 'ACTIVE') {
+                // Floating Trade: Calculate P/L at this exact moment
                 finalPoints = calculatePoints(oldTrade.type, oldTrade.entry_price, current_ltp);
                 closeStatus = "CLOSED (Force)";
-            } else if (oldTrade.status === 'SIGNAL' || oldTrade.status === 'SETUP') {
-                closeStatus = "EXPIRED";
-            } else {
-                closeStatus = `CLOSED (${oldTrade.status})`;
-                finalPoints = oldTrade.points_gained;
             }
 
+            // Close the Old Trade
             await pool.query(
                 "UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3",
                 [closeStatus, finalPoints, oldTrade.trade_id]
             );
             
-            if(oldTrade.telegram_msg_id) {
-                 bot.sendMessage(CHAT_ID, `🔄 **SWITCHING SIDES**\nOld Trade Closed. Result: ${finalPoints.toFixed(5)}`, { reply_to_message_id: oldTrade.telegram_msg_id, parse_mode: 'Markdown' });
-            }
+            bot.sendMessage(CHAT_ID, `🔄 **SWITCHING SIDES**\n${symbol} Old Trade Closed\nResult: ${finalPoints.toFixed(5)}`);
         }
 
-        // B. Send Telegram Message FIRST
-        const msg = `📋 **SETUP CONFIRMED**\n\n**${symbol}** (${type})\nEntry: ${entry}\nSL: ${sl}\n\nTP1: ${tp1}\nTP2: ${tp2}\nTP3: ${tp3}`;
-        const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' });
+        // --- STEP B: UPDATE NEW TRADE ---
+        const lookup = await pool.query("SELECT * FROM trades WHERE trade_id = $1", [trade_id]);
+        if (lookup.rows.length === 0) return res.status(404).json({ error: "Signal not found" });
+        const trade = lookup.rows[0];
 
-        // C. Update Database (With Backup Insert)
-        const updateQuery = `
-            UPDATE trades 
-            SET entry_price=$1, sl_price=$2, tp1_price=$3, tp2_price=$4, tp3_price=$5, status='SETUP', telegram_msg_id=$6 
-            WHERE trade_id=$7
-            RETURNING *;
-        `;
-        const updateResult = await pool.query(updateQuery, [entry, sl, tp1, tp2, tp3, sentMsg.message_id, trade_id]);
+        await pool.query(
+            "UPDATE trades SET entry_price=$1, sl_price=$2, tp1_price=$3, tp2_price=$4, tp3_price=$5, status='SETUP' WHERE trade_id=$6",
+            [entry, sl, tp1, tp2, tp3, trade_id]
+        );
 
-        // [FIX] If Update affected 0 rows, the Signal was missing. INSERT it now.
-        if (updateResult.rowCount === 0) {
-            console.log(`[FIX] Signal missing for ${trade_id}. Creating new record.`);
-            const insertQuery = `
-                INSERT INTO trades (trade_id, symbol, type, entry_price, sl_price, tp1_price, tp2_price, tp3_price, status, telegram_msg_id, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SETUP', $9, $10)
-            `;
-            await pool.query(insertQuery, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, sentMsg.message_id, getISTTime()]);
-        }
+        const msg = `📋 **SETUP CONFIRMED**\nEntry: ${entry}\nSL: ${sl}\nTP1: ${tp1}\nTP2: ${tp2}\nTP3: ${tp3}`;
+        bot.sendMessage(CHAT_ID, msg, { reply_to_message_id: trade.telegram_msg_id, parse_mode: 'Markdown' });
 
         res.json({ success: true });
 
-    } catch (err) { 
-        console.error("Setup Error:", err.message);
-        res.status(500).json({ error: err.message }); 
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 3. TRADE EVENT (ENTRY / TP / SL HIT) ---
-app.post('/api/trade_event', async (req, res) => {
-    const { trade_id, event, price } = req.body; 
-
-    try {
-        const result = await pool.query("SELECT * FROM trades WHERE trade_id = $1", [trade_id]);
-        if (result.rows.length === 0) {
-            console.log(`[WARN] Event received for unknown trade: ${trade_id}`);
-            return res.status(404).json({ error: "Trade not found" });
-        }
-        
-        const t = result.rows[0];
-        let newStatus = t.status;
-        let replyMsg = "";
-        let points = parseFloat(t.points_gained);
-
-        if (event === "ENTRY_HIT" && t.status === "SETUP") {
-            newStatus = "ACTIVE";
-            replyMsg = `🚀 **ENTRY TRIGGERED**\nPrice: ${price}`;
-        }
-        else if (event === "TP1_HIT" && !t.status.includes("TP")) {
-            newStatus = "TP1 HIT";
-            points = calculatePoints(t.type, t.entry_price, t.tp1_price);
-            replyMsg = `✅ **TARGET 1 HIT**\nPrice: ${price}\nLocked: ${points.toFixed(5)}`;
-        }
-        else if (event === "TP2_HIT" && t.status !== "TP2 HIT" && t.status !== "TP3 HIT") {
-            newStatus = "TP2 HIT";
-            points = calculatePoints(t.type, t.entry_price, t.tp2_price);
-            replyMsg = `✅ **TARGET 2 HIT**\nPrice: ${price}\nLocked: ${points.toFixed(5)}`;
-        }
-        else if (event === "TP3_HIT" && t.status !== "TP3 HIT") {
-            newStatus = "TP3 HIT";
-            points = calculatePoints(t.type, t.entry_price, t.tp3_price);
-            replyMsg = `🥂 **TARGET 3 HIT (MAX)**\nPrice: ${price}\nLocked: ${points.toFixed(5)}`;
-        }
-        else if (event === "SL_HIT" && !t.status.includes("HIT")) {
-            newStatus = "SL HIT";
-            points = calculatePoints(t.type, t.entry_price, t.sl_price);
-            replyMsg = `🛑 **STOP LOSS HIT**\nPrice: ${price}\nLoss: ${points.toFixed(5)}`;
-        }
-
-        if (newStatus !== t.status) {
-            await pool.query(
-                "UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3",
-                [newStatus, points, trade_id]
-            );
-
-            if (t.telegram_msg_id && replyMsg !== "") {
-                bot.sendMessage(CHAT_ID, replyMsg, { 
-                    reply_to_message_id: t.telegram_msg_id, 
-                    parse_mode: 'Markdown' 
-                });
-            }
-        }
-
-        res.json({ success: true, status: newStatus });
-
-    } catch (err) { 
-        console.error("Event Error:", err.message);
-        res.status(500).json({ error: err.message }); 
-    }
-});
-
-// --- 4. DASHBOARD PRICE UPDATE ---
+// --- 3. PRICE UPDATE (THE BRAIN) ---
 app.post('/api/price_update', async (req, res) => {
     const { symbol, bid, ask } = req.body;
+    // NOTE: For Buy trade, we check Bid for TP, Ask for SL (simplified to Bid for now for speed)
+    // Best practice: Buy Exit = Bid, Sell Exit = Ask.
+    
     try {
+        // Get all OPEN trades for this symbol
         const trades = await pool.query(
-            "SELECT * FROM trades WHERE symbol = $1 AND status = 'ACTIVE'", 
+            "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SETUP', 'ACTIVE', 'TP1', 'TP2')",
             [symbol]
         );
 
         for (const t of trades.rows) {
-            let price = (t.type === 'BUY') ? bid : ask; 
+            let newStatus = t.status;
+            let price = (t.type === 'BUY') ? bid : ask; // Current price relevant to trade
             let points = calculatePoints(t.type, t.entry_price, price);
-            await pool.query("UPDATE trades SET points_gained = $1 WHERE id = $2", [points, t.id]);
+
+            // 1. CHECK ENTRY (If Pending)
+            if (t.status === 'SETUP') {
+                let hit = (t.type === 'BUY' && price >= t.entry_price) || (t.type === 'SELL' && price <= t.entry_price);
+                if (hit) {
+                    newStatus = 'ACTIVE';
+                    bot.sendMessage(CHAT_ID, `🚀 **ENTRY ACTIVATED**\n${t.symbol} @ ${price}`, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'Markdown' });
+                }
+            }
+
+            // 2. CHECK TP/SL (If Active)
+            if (t.status === 'ACTIVE' || t.status.includes('TP')) {
+                
+                // STOP LOSS CHECK
+                let slHit = (t.type === 'BUY' && price <= t.sl_price) || (t.type === 'SELL' && price >= t.sl_price);
+                if (slHit) {
+                    newStatus = 'SL HIT';
+                    // Final SL points are fixed distance (Entry - SL) usually, or actual close.
+                    // Let's use actual close for accuracy.
+                }
+
+                // TP CHECK (Lock Profit)
+                // We only upgrade status. TP1 -> TP2. Never TP2 -> TP1.
+                let tp1Hit = (t.type === 'BUY' && price >= t.tp1_price) || (t.type === 'SELL' && price <= t.tp1_price);
+                let tp2Hit = (t.type === 'BUY' && price >= t.tp2_price) || (t.type === 'SELL' && price <= t.tp2_price);
+                let tp3Hit = (t.type === 'BUY' && price >= t.tp3_price) || (t.type === 'SELL' && price <= t.tp3_price);
+
+                if (tp3Hit) newStatus = 'TP3 HIT';
+                else if (tp2Hit && newStatus !== 'TP3 HIT') newStatus = 'TP2 HIT';
+                else if (tp1Hit && newStatus !== 'TP2 HIT' && newStatus !== 'TP3 HIT') newStatus = 'TP1 HIT';
+            }
+
+            // 3. UPDATE DB IF CHANGED
+            if (newStatus !== t.status) {
+                // If TP/SL hit, we update the points to "Lock" them at that level? 
+                // Or do we keep updating points live? 
+                // User said: "Profit should lock every TP".
+                
+                if (newStatus.includes('TP')) {
+                    // Lock points at the Target Price level, not current price
+                    let targetPrice = (newStatus === 'TP1 HIT') ? t.tp1_price : (newStatus === 'TP2 HIT') ? t.tp2_price : t.tp3_price;
+                    points = calculatePoints(t.type, t.entry_price, targetPrice);
+                }
+
+                await pool.query(
+                    "UPDATE trades SET status = $1, points_gained = $2 WHERE id = $3",
+                    [newStatus, points, t.id]
+                );
+                
+                if (newStatus.includes('HIT')) {
+                     bot.sendMessage(CHAT_ID, `🎯 **${newStatus}**\n${t.symbol}\nLocked Points: ${points.toFixed(5)}`, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'Markdown' });
+                }
+            } 
+            else if (t.status === 'ACTIVE') {
+                // Just update floating points live without changing status
+                await pool.query("UPDATE trades SET points_gained = $1 WHERE id = $2", [points, t.id]);
+            }
         }
+        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
