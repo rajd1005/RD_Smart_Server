@@ -23,13 +23,9 @@ function calculatePoints(type, entry, close) {
     return raw; 
 }
 
-// --- 1. SIGNAL DETECTED (SILENT MODE) ---
-// Action: Save to DB only. No Telegram Message.
+// --- 1. SIGNAL DETECTED (SILENT - DB ONLY) ---
 app.post('/api/signal_detected', async (req, res) => {
     const { trade_id, symbol, type, time } = req.body;
-    
-    // We use the 'time' sent from MT4 (Breakout Time) as the creation time
-    // If not provided, fallback to current IST
     const createdTime = time ? time : getISTTime();
 
     try {
@@ -39,22 +35,20 @@ app.post('/api/signal_detected', async (req, res) => {
             ON CONFLICT (trade_id) DO NOTHING;
         `;
         await pool.query(query, [trade_id, symbol, type, createdTime]);
-        
-        console.log(`[SILENT] New Signal Saved: ${trade_id}`);
+        console.log(`[SILENT] Signal Captured: ${trade_id}`);
         res.json({ success: true });
     } catch (err) { 
-        console.error(err);
+        console.error("Signal Insert Error:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 });
 
-// --- 2. SETUP CONFIRMED (THE PARENT MESSAGE) ---
-// Action: Send "Setup Confirmed" Msg -> Save msg_id for Threading
+// --- 2. SETUP CONFIRMED (ROBUST - SELF HEALING) ---
 app.post('/api/setup_confirmed', async (req, res) => {
     const { trade_id, symbol, type, entry, sl, tp1, tp2, tp3, current_ltp } = req.body;
 
     try {
-        // --- STEP A: FORCE CLOSE OLD TRADES ---
+        // A. Close Old Trades
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE', 'TP1', 'TP2') AND trade_id != $2",
             [symbol, trade_id]
@@ -64,17 +58,14 @@ app.post('/api/setup_confirmed', async (req, res) => {
             let closeStatus = "CLOSED (Reversal)";
             let finalPoints = 0;
 
-            if (oldTrade.status === 'SIGNAL' || oldTrade.status === 'SETUP') {
-                closeStatus = "EXPIRED"; 
-                finalPoints = 0;
-            } 
-            else if (oldTrade.status.includes('TP') || oldTrade.status.includes('SL')) {
-                closeStatus = `CLOSED (${oldTrade.status})`;
-                finalPoints = oldTrade.points_gained; 
-            } 
-            else if (oldTrade.status === 'ACTIVE') {
+            if (oldTrade.status === 'ACTIVE') {
                 finalPoints = calculatePoints(oldTrade.type, oldTrade.entry_price, current_ltp);
                 closeStatus = "CLOSED (Force)";
+            } else if (oldTrade.status === 'SIGNAL' || oldTrade.status === 'SETUP') {
+                closeStatus = "EXPIRED";
+            } else {
+                closeStatus = `CLOSED (${oldTrade.status})`;
+                finalPoints = oldTrade.points_gained;
             }
 
             await pool.query(
@@ -82,48 +73,58 @@ app.post('/api/setup_confirmed', async (req, res) => {
                 [closeStatus, finalPoints, oldTrade.trade_id]
             );
             
-            // Notify closure (Optional: Can be silent or a reply to the old thread)
             if(oldTrade.telegram_msg_id) {
                  bot.sendMessage(CHAT_ID, `🔄 **SWITCHING SIDES**\nOld Trade Closed. Result: ${finalPoints.toFixed(5)}`, { reply_to_message_id: oldTrade.telegram_msg_id, parse_mode: 'Markdown' });
             }
         }
 
-        // --- STEP B: UPDATE NEW TRADE & START THREAD ---
+        // B. Send Telegram Message FIRST
         const msg = `📋 **SETUP CONFIRMED**\n\n**${symbol}** (${type})\nEntry: ${entry}\nSL: ${sl}\n\nTP1: ${tp1}\nTP2: ${tp2}\nTP3: ${tp3}`;
-        
         const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' });
-        
-        // Update DB with Setup Info + THE IMPORTANT MESSAGE ID
-        await pool.query(
-            "UPDATE trades SET entry_price=$1, sl_price=$2, tp1_price=$3, tp2_price=$4, tp3_price=$5, status='SETUP', telegram_msg_id=$6 WHERE trade_id=$7",
-            [entry, sl, tp1, tp2, tp3, sentMsg.message_id, trade_id]
-        );
+
+        // C. Update Database (With Backup Insert)
+        const updateQuery = `
+            UPDATE trades 
+            SET entry_price=$1, sl_price=$2, tp1_price=$3, tp2_price=$4, tp3_price=$5, status='SETUP', telegram_msg_id=$6 
+            WHERE trade_id=$7
+            RETURNING *;
+        `;
+        const updateResult = await pool.query(updateQuery, [entry, sl, tp1, tp2, tp3, sentMsg.message_id, trade_id]);
+
+        // [FIX] If Update affected 0 rows, the Signal was missing. INSERT it now.
+        if (updateResult.rowCount === 0) {
+            console.log(`[FIX] Signal missing for ${trade_id}. Creating new record.`);
+            const insertQuery = `
+                INSERT INTO trades (trade_id, symbol, type, entry_price, sl_price, tp1_price, tp2_price, tp3_price, status, telegram_msg_id, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SETUP', $9, $10)
+            `;
+            await pool.query(insertQuery, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, sentMsg.message_id, getISTTime()]);
+        }
 
         res.json({ success: true });
 
     } catch (err) { 
-        console.error(err);
+        console.error("Setup Error:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 });
 
-// --- 3. NEW: TRADE EVENT HANDLER (TICK BASED) ---
-// Action: Receives Instant "HIT" events from MT4 and Replies to Thread
+// --- 3. TRADE EVENT (ENTRY / TP / SL HIT) ---
 app.post('/api/trade_event', async (req, res) => {
     const { trade_id, event, price } = req.body; 
-    // event types: "ENTRY_HIT", "TP1_HIT", "TP2_HIT", "TP3_HIT", "SL_HIT"
 
     try {
-        // 1. Get Trade Info
         const result = await pool.query("SELECT * FROM trades WHERE trade_id = $1", [trade_id]);
-        if (result.rows.length === 0) return res.status(404).json({ error: "Trade not found" });
+        if (result.rows.length === 0) {
+            console.log(`[WARN] Event received for unknown trade: ${trade_id}`);
+            return res.status(404).json({ error: "Trade not found" });
+        }
         
         const t = result.rows[0];
         let newStatus = t.status;
         let replyMsg = "";
-        let points = t.points_gained;
+        let points = parseFloat(t.points_gained);
 
-        // 2. Logic Per Event
         if (event === "ENTRY_HIT" && t.status === "SETUP") {
             newStatus = "ACTIVE";
             replyMsg = `🚀 **ENTRY TRIGGERED**\nPrice: ${price}`;
@@ -149,7 +150,6 @@ app.post('/api/trade_event', async (req, res) => {
             replyMsg = `🛑 **STOP LOSS HIT**\nPrice: ${price}\nLoss: ${points.toFixed(5)}`;
         }
 
-        // 3. Update & Reply (Only if status changed)
         if (newStatus !== t.status) {
             await pool.query(
                 "UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3",
@@ -167,18 +167,15 @@ app.post('/api/trade_event', async (req, res) => {
         res.json({ success: true, status: newStatus });
 
     } catch (err) { 
-        console.error(err);
+        console.error("Event Error:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 });
 
-// --- 4. PRICE UPDATE (HEARTBEAT ONLY) ---
-// Action: Only updates Web Dashboard. No Telegram Alerts (MT4 handles alerts now).
+// --- 4. DASHBOARD PRICE UPDATE ---
 app.post('/api/price_update', async (req, res) => {
     const { symbol, bid, ask } = req.body;
-    
     try {
-        // Just update floating P/L for ACTIVE trades for the dashboard
         const trades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status = 'ACTIVE'", 
             [symbol]
@@ -187,10 +184,8 @@ app.post('/api/price_update', async (req, res) => {
         for (const t of trades.rows) {
             let price = (t.type === 'BUY') ? bid : ask; 
             let points = calculatePoints(t.type, t.entry_price, price);
-            
             await pool.query("UPDATE trades SET points_gained = $1 WHERE id = $2", [points, t.id]);
         }
-        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
