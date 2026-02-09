@@ -14,32 +14,28 @@ const CHAT_ID = process.env.TG_CHAT_ID;
 
 // --- HELPERS ---
 
-// 1. For Telegram Messages (Friendly Text)
 function getISTTime() {
     return new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
 }
 
-// 2. For Database Sorting & Filtering (Standard ISO Format)
 function getDBTime() {
     return new Date().toISOString(); 
 }
 
-// 3. Intelligent Points Calculator
+// --- STANDARD POINT CALCULATOR (Raw Difference) ---
+// No 10000x multipliers. Just Price A - Price B.
 function calculatePoints(type, entry, currentPrice) {
     if (!entry || !currentPrice) return 0;
-    let raw = (type === 'BUY') ? (currentPrice - entry) : (entry - currentPrice);
     
-    // Auto-Detect Forex vs Gold/Index
-    // If raw diff is tiny (< 1.0), assume it's Forex and show Pips (x10000)
-    if (Math.abs(raw) < 1.0 && Math.abs(raw) > 0) {
-        return raw * 10000; 
-    }
-    return raw; 
+    // Simple Math:
+    // Buy Profit = Current - Entry
+    // Sell Profit = Entry - Current
+    return (type === 'BUY') ? (currentPrice - entry) : (entry - currentPrice);
 }
 
 // --- API ENDPOINTS ---
 
-// 1. GET ALL TRADES (This was missing!)
+// 1. GET ALL TRADES
 app.get('/api/trades', async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM trades ORDER BY id DESC LIMIT 100");
@@ -51,7 +47,7 @@ app.get('/api/trades', async (req, res) => {
 app.post('/api/signal_detected', async (req, res) => {
     const { trade_id, symbol, type } = req.body;
     const istTime = getISTTime();
-    const dbTime = getDBTime(); // Use ISO time for DB
+    const dbTime = getDBTime(); 
 
     try {
         const msg = `⚠️ **NEW SIGNAL**\nSymbol: ${symbol}\nType: ${type}\nTime: ${istTime}`;
@@ -142,7 +138,8 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        const msg = `⚡ **UPDATE: ${new_status}**\nPrice: ${price}\nProfit: ${points.toFixed(1)} pts`;
+        // Show 5 decimals for Telegram alerts to handle raw Forex points correctly
+        const msg = `⚡ **UPDATE: ${new_status}**\nPrice: ${price}\nProfit: ${points.toFixed(5)}`;
         const opts = { parse_mode: 'Markdown' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
 
@@ -154,5 +151,5 @@ app.post('/api/log_event', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
-    app.listen(PORT, () => console.log(`🚀 Trade Manager (Passive) running on ${PORT}`));
+    app.listen(PORT, () => console.log(`🚀 Trade Manager (Standard Points) running on ${PORT}`));
 });
