@@ -5,35 +5,98 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RD Algo Trade Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
     <style>
-        body { background-color: #f4f6f9; font-size: 0.85rem; }
+        body { 
+            background-color: #f4f6f9; 
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem; 
+        }
         .table-responsive { overflow-x: auto; }
+        
+        /* Badges & Status Colors */
         .badge-buy { background-color: #0d6efd; }
         .badge-sell { background-color: #d63384; }
-        .status-active { color: #0d6efd; font-weight: bold; animation: pulse 2s infinite; }
-        .status-tp { color: #198754; font-weight: bold; }
-        .status-sl { color: #dc3545; font-weight: bold; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+        
+        .status-active { color: #0d6efd; font-weight: 700; animation: pulse 2s infinite; }
+        .status-tp { color: #198754; font-weight: 700; }
+        .status-sl { color: #dc3545; font-weight: 700; }
+        
+        /* Stats Cards */
+        .stat-card {
+            border: none;
+            border-left: 4px solid #ddd;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-label { font-size: 0.75rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: #212529; }
+        
+        /* Table Tweaks */
+        table thead { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        @keyframes pulse { 
+            0% { opacity: 1; } 
+            50% { opacity: 0.6; } 
+            100% { opacity: 1; } 
+        }
     </style>
 </head>
 <body>
 
-<div class="container-fluid p-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4>📊 Live Trade Manager</h4>
-        <span class="badge bg-dark">Server Time: <span id="clock">--:--</span></span>
+<div class="container-fluid p-4" style="max-width: 1400px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="fw-bold mb-0">📊 RD Algo Dashboard</h4>
+            <small class="text-muted">Live MT4 Trade Monitor</small>
+        </div>
+        <span class="badge bg-dark p-2">Server Time: <span id="clock" class="font-monospace">--:--</span></span>
     </div>
 
-    <div class="card p-2 mb-3 shadow-sm">
-        <div class="row g-2">
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card stat-card shadow-sm p-3" style="border-left-color: #0d6efd;">
+                <span class="stat-label">Active Trades</span>
+                <span id="activeTrades" class="stat-value">0</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card shadow-sm p-3" style="border-left-color: #198754;">
+                <span class="stat-label">Win Rate</span>
+                <span id="winRate" class="stat-value">0%</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card shadow-sm p-3" style="border-left-color: #ffc107;">
+                <span class="stat-label">Total Profit (Pts)</span>
+                <span id="totalPips" class="stat-value">0.00</span>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card stat-card shadow-sm p-3" style="border-left-color: #6c757d;">
+                <span class="stat-label">Total Signals</span>
+                <span id="totalTrades" class="stat-value">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card p-3 mb-3 shadow-sm border-0">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-auto fw-bold text-secondary">FILTER:</div>
             <div class="col-md-2"><input type="date" id="filterDate" class="form-control form-control-sm"></div>
-            <div class="col-md-2"><input type="text" id="filterSymbol" class="form-control form-control-sm" placeholder="Symbol"></div>
+            <div class="col-md-2"><input type="text" id="filterSymbol" class="form-control form-control-sm" placeholder="Search Symbol..."></div>
             <div class="col-md-2">
                 <select id="filterStatus" class="form-select form-select-sm">
                     <option value="ALL">All Status</option>
-                    <option value="ACTIVE">Active Running</option>
-                    <option value="HIT">Closed / Hit</option>
+                    <option value="OPEN">Active / Running</option>
+                    <option value="TP">Profitable (TP Hit)</option>
+                    <option value="SL">Loss (SL Hit)</option>
                 </select>
+            </div>
+            <div class="col text-end">
+                <button onclick="fetchTrades()" class="btn btn-sm btn-outline-primary">Refresh Data</button>
             </div>
         </div>
     </div>
@@ -43,87 +106,37 @@
             <table class="table table-hover mb-0 align-middle text-center">
                 <thead class="table-dark">
                     <tr>
-                        <th>Time</th>
-                        <th>Symbol</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Entry</th>
-                        <th>SL</th>
-                        <th>TP 1</th>
-                        <th>TP 2</th>
-                        <th>TP 3</th>
-                        <th>Points (P/L)</th>
+                        <th class="py-3">Time</th>
+                        <th class="py-3">Symbol</th>
+                        <th class="py-3">Type</th>
+                        <th class="py-3">Status</th>
+                        <th class="py-3">Entry</th>
+                        <th class="py-3">Stop Loss</th>
+                        <th class="py-3">TP 1</th>
+                        <th class="py-3">TP 2</th>
+                        <th class="py-3">TP 3</th>
+                        <th class="py-3">Profit</th>
                     </tr>
                 </thead>
-                <tbody id="tradeTableBody"></tbody>
+                <tbody id="tradeTableBody" class="bg-white">
+                    </tbody>
             </table>
+        </div>
+        
+        <div id="noDataMessage" class="text-center p-5 text-muted" style="display:none;">
+            <h5>No trades found for this selection</h5>
+            <small>Try changing the date filter or waiting for new signals.</small>
         </div>
     </div>
 </div>
 
+<script src="app.js"></script>
 <script>
-    const API_URL = '/api/trades';
-    
-    // Set Date to Today
-    document.getElementById('filterDate').value = new Date().toLocaleString("en-CA", {timeZone: "Asia/Kolkata"}).split(',')[0];
-
-    async function fetchTrades() {
-        try {
-            const res = await fetch(API_URL);
-            const trades = await res.json();
-            renderTable(trades);
-        } catch (e) { console.error(e); }
-    }
-
-    function renderTable(trades) {
-        const filterDate = document.getElementById('filterDate').value;
-        const filterSym = document.getElementById('filterSymbol').value.toUpperCase();
-        const filterStat = document.getElementById('filterStatus').value;
-        const tbody = document.getElementById('tradeTableBody');
-        tbody.innerHTML = '';
-
-        const filtered = trades.filter(t => {
-            return t.symbol.includes(filterSym) && 
-                   (filterStat === 'ALL' || t.status.includes(filterStat));
-            // Note: Date filter ignored for now to show all data, uncomment if needed
-        });
-
-        filtered.forEach(t => {
-            let badge = t.type === 'BUY' ? 'badge-buy' : 'badge-sell';
-            let statusClass = t.status === 'ACTIVE' ? 'status-active' : (t.status.includes('TP') ? 'status-tp' : 'text-secondary');
-            if(t.status.includes('SL') || t.status.includes('Loss')) statusClass = 'status-sl';
-
-            let pts = parseFloat(t.points_gained);
-            let ptsColor = pts > 0 ? 'text-success' : (pts < 0 ? 'text-danger' : 'text-muted');
-
-            let row = `
-                <tr>
-                    <td style="font-size:0.8rem">${t.created_at.split(',')[1] || t.created_at}</td>
-                    <td><b>${t.symbol}</b></td>
-                    <td><span class="badge ${badge}">${t.type}</span></td>
-                    <td class="${statusClass}">${t.status}</td>
-                    <td>${parseFloat(t.entry_price).toFixed(5)}</td>
-                    <td>${parseFloat(t.sl_price).toFixed(5)}</td>
-                    <td>${parseFloat(t.tp1_price).toFixed(5)}</td>
-                    <td>${parseFloat(t.tp2_price).toFixed(5)}</td>
-                    <td>${parseFloat(t.tp3_price).toFixed(5)}</td>
-                    <td class="fw-bold ${ptsColor}" style="font-size:1.1rem">${pts.toFixed(2)}</td>
-                </tr>
-            `;
-            tbody.innerHTML += row;
-        });
-        
-        // Update Clock
+    // Simple Clock
+    setInterval(() => {
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
-    }
-
-    setInterval(fetchTrades, 2000); // Poll every 2 seconds
-    fetchTrades();
-    
-    // Listeners
-    document.getElementById('filterDate').addEventListener('change', fetchTrades);
-    document.getElementById('filterSymbol').addEventListener('keyup', fetchTrades);
-    document.getElementById('filterStatus').addEventListener('change', fetchTrades);
+    }, 1000);
 </script>
+
 </body>
 </html>
