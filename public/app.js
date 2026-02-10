@@ -6,13 +6,13 @@ window.onload = function() {
     fetchTrades();
 };
 
+// --- FIX 1: Set Date Input to IST (YYYY-MM-DD) ---
 function setTodayDate() {
-    const today = new Date();
-    // UTC+5:30 (IST)
-    const offset = 5.5 * 60 * 60 * 1000; 
-    const indiaTime = new Date(today.getTime() + offset); 
-    const dateStr = indiaTime.toISOString().split('T')[0];
-    document.getElementById('filterDate').value = dateStr;
+    // 'en-CA' locale formats date as YYYY-MM-DD automatically
+    const istDate = new Date().toLocaleDateString('en-CA', { 
+        timeZone: 'Asia/Kolkata' 
+    });
+    document.getElementById('filterDate').value = istDate;
 }
 
 async function fetchTrades() {
@@ -25,14 +25,18 @@ async function fetchTrades() {
     }
 }
 
+// --- FIX 2: Filter Logic using IST Dates ---
 function applyFilters() {
     const filterSymbol = document.getElementById('filterSymbol').value.toUpperCase();
     const filterStatus = document.getElementById('filterStatus').value;
     const filterDateInput = document.getElementById('filterDate').value; 
 
     const filtered = allTrades.filter(trade => {
+        // Convert the database time (UTC/ISO) to IST Date String (YYYY-MM-DD)
         const tradeDateObj = new Date(trade.created_at);
-        const tradeDateStr = tradeDateObj.toISOString().split('T')[0];
+        const tradeDateStr = tradeDateObj.toLocaleDateString('en-CA', { 
+            timeZone: 'Asia/Kolkata' 
+        });
 
         const matchesDate = (filterDateInput === "") || (tradeDateStr === filterDateInput);
         const matchesSymbol = trade.symbol.includes(filterSymbol);
@@ -63,19 +67,23 @@ function renderTable(trades) {
 
     trades.forEach((trade, index) => {
         const dateObj = new Date(trade.created_at);
-        const timeString = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        // --- FIX 3: Display Time in IST ---
+        const timeString = dateObj.toLocaleTimeString('en-US', { 
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+        });
 
         let statusClass = 'text-secondary';
-        if (trade.status === 'ACTIVE') statusClass = 'status-active'; // Updated class name to match CSS
+        if (trade.status === 'ACTIVE') statusClass = 'status-active';
         if (trade.status.includes('TP')) statusClass = 'status-tp';
         if (trade.status.includes('SL')) statusClass = 'status-sl';
 
         let pts = parseFloat(trade.points_gained);
         let ptsColor = pts > 0 ? 'text-success' : (pts < 0 ? 'text-danger' : 'text-muted');
         
-        // INTELLIGENT PRECISION: 
-        // If value is small (< 10), show 5 decimals (Forex). 
-        // If large (> 10), show 2 decimals (Gold/Indices).
         let displayPts = Math.abs(pts) < 10 && Math.abs(pts) > 0 ? pts.toFixed(5) : pts.toFixed(2);
 
         const row = `
@@ -115,12 +123,9 @@ function calculateStats(trades) {
     const totalClosed = wins + losses;
     const winRate = totalClosed === 0 ? 0 : Math.round((wins / totalClosed) * 100);
 
-    // Update Dashboard Header Stats
-    // Ensure you have these IDs in your index.html, or remove these lines if not using a stats bar
     if(document.getElementById('totalTrades')) document.getElementById('totalTrades').innerText = trades.length;
     if(document.getElementById('winRate')) document.getElementById('winRate').innerText = winRate + "%";
     
-    // Intelligent Precision for Total
     let displayTotal = Math.abs(totalPoints) < 10 && Math.abs(totalPoints) > 0 ? totalPoints.toFixed(5) : totalPoints.toFixed(2);
     if(document.getElementById('totalPips')) document.getElementById('totalPips').innerText = displayTotal;
     
