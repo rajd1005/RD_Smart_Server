@@ -55,12 +55,11 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // --- DESIGN: NEW SIGNAL ---
-        const msg = `🚨 <b>NEW SIGNAL DETECTED</b>
-
-💎 <b>Symbol:</b> #${symbol}
-📊 <b>Type:</b> ${type}
-🕒 <b>Time:</b> ${istTime}`;
+        // --- DESIGN: NEW SIGNAL (Explicit \n for safe line breaks) ---
+        const msg = "🚨 <b>NEW SIGNAL DETECTED</b>\n\n" +
+                    "💎 <b>Symbol:</b> #" + symbol + "\n" +
+                    "📊 <b>Type:</b> " + type + "\n" +
+                    "🕒 <b>Time:</b> " + istTime;
 
         const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'HTML' });
         
@@ -90,8 +89,8 @@ app.post('/api/setup_confirmed', async (req, res) => {
             await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)' WHERE trade_id = $1", [t.trade_id]);
             if(t.telegram_msg_id) {
                 // --- DESIGN: REVERSAL ---
-                const revMsg = `🔄 <b>Trade Reversed</b>
-❌ Closed by new signal.`;
+                const revMsg = "🔄 <b>Trade Reversed</b>\n" +
+                               "❌ Closed by new signal.";
                 bot.sendMessage(CHAT_ID, revMsg, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'HTML' });
             }
         }
@@ -110,17 +109,15 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // --- DESIGN: SETUP CONFIRMED ---
-        const msg = `✅ <b>SETUP CONFIRMED</b>
-
-💎 <b>Symbol:</b> #${symbol}
-🚀 <b>Type:</b> ${type}
-🚪 <b>Entry:</b> ${entry}
-🛑 <b>SL:</b> ${sl}
-
-🎯 <b>TP1:</b> ${tp1}
-🎯 <b>TP2:</b> ${tp2}
-🎯 <b>TP3:</b> ${tp3}`;
+        // --- DESIGN: SETUP CONFIRMED (Explicit \n) ---
+        const msg = "✅ <b>SETUP CONFIRMED</b>\n\n" +
+                    "💎 <b>Symbol:</b> #" + symbol + "\n" +
+                    "🚀 <b>Type:</b> " + type + "\n" +
+                    "🚪 <b>Entry:</b> " + entry + "\n" +
+                    "🛑 <b>SL:</b> " + sl + "\n\n" +
+                    "🎯 <b>TP1:</b> " + tp1 + "\n" +
+                    "🎯 <b>TP2:</b> " + tp2 + "\n" +
+                    "🎯 <b>TP3:</b> " + tp3;
 
         const opts = { parse_mode: 'HTML' };
         if (msgId) opts.reply_to_message_id = msgId;
@@ -181,11 +178,10 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // --- DESIGN: UPDATE EVENT (Symbol + Price Only) ---
-        const msg = `⚡ <b>UPDATE: ${new_status}</b>
-
-💎 <b>Symbol:</b> #${trade.symbol}
-📉 <b>Price:</b> ${price}`;
+        // --- DESIGN: UPDATE EVENT (Symbol + Price Only, Explicit \n) ---
+        const msg = "⚡ <b>UPDATE: " + new_status + "</b>\n\n" +
+                    "💎 <b>Symbol:</b> #" + trade.symbol + "\n" +
+                    "📉 <b>Price:</b> " + price;
         
         const opts = { parse_mode: 'HTML' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
