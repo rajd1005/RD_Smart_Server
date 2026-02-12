@@ -55,7 +55,7 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // --- DESIGN: NEW SIGNAL (With Symbol) ---
+        // --- DESIGN: NEW SIGNAL ---
         const msg = `🚨 <b>NEW SIGNAL DETECTED</b>\n\n` +
                     `💎 <b>Symbol:</b> #${symbol}\n` +
                     `📊 <b>Type:</b> ${type}\n` +
@@ -107,7 +107,8 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // --- DESIGN: SETUP CONFIRMED (With Symbol) ---
+        // --- DESIGN: SETUP CONFIRMED ---
+        // Using explicit \n for reliable line breaks in HTML mode
         const msg = `✅ <b>SETUP CONFIRMED</b>\n\n` +
                     `💎 <b>Symbol:</b> #${symbol}\n` +
                     `🚀 <b>Type:</b> ${type}\n` +
@@ -176,7 +177,7 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // --- DESIGN: UPDATE EVENT (With Symbol, No Profit) ---
+        // --- DESIGN: UPDATE EVENT (Symbol + Price Only) ---
         const msg = `⚡ <b>UPDATE: ${new_status}</b>\n\n` +
                     `💎 <b>Symbol:</b> #${trade.symbol}\n` +
                     `📉 <b>Price:</b> ${price}`;
