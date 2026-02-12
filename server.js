@@ -26,6 +26,7 @@ function getISTTime() {
     return new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
 }
 function getDBTime() { return new Date().toISOString(); }
+
 function calculatePoints(type, entry, currentPrice) {
     if (!entry || !currentPrice) return 0;
     return (type === 'BUY') ? (currentPrice - entry) : (entry - currentPrice);
@@ -36,17 +37,21 @@ function calculatePoints(type, entry, currentPrice) {
 // 1. SIGNAL DETECTED
 app.post('/api/signal_detected', async (req, res) => {
     const { trade_id, symbol, type } = req.body;
+    const istTime = getISTTime();
+    const dbTime = getDBTime();
+
     try {
-        // ✅ Uses HTML mode. \n works perfectly here.
-        const msg = `🚨 <b>NEW SIGNAL DETECTED</b>\n\n` +
-                    `💎 <b>Symbol:</b> #${symbol}\n` +
-                    `📊 <b>Type:</b> ${type}\n` +
-                    `🕒 <b>Time:</b> ${getISTTime()}`;
+        // ✅ FIXED: Template Literals (Backticks) - No \n characters needed
+        const msg = `🚨 <b>NEW SIGNAL DETECTED</b>
+
+💎 <b>Symbol:</b> #${symbol}
+📊 <b>Type:</b> ${type}
+🕒 <b>Time:</b> ${istTime}`;
 
         const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'HTML' });
         
         await pool.query(`INSERT INTO trades (trade_id, symbol, type, telegram_msg_id, created_at, status) VALUES ($1, $2, $3, $4, $5, 'SIGNAL') ON CONFLICT (trade_id) DO NOTHING`, 
-            [trade_id, symbol, type, sentMsg.message_id, getDBTime()]);
+            [trade_id, symbol, type, sentMsg.message_id, dbTime]);
 
         io.emit('trade_update'); 
         res.json({ success: true });
@@ -56,34 +61,39 @@ app.post('/api/signal_detected', async (req, res) => {
 // 2. SETUP CONFIRMED
 app.post('/api/setup_confirmed', async (req, res) => {
     const { trade_id, symbol, type, entry, sl, tp1, tp2, tp3 } = req.body;
+    const dbTime = getDBTime();
+
     try {
-        // Close Old Trades
         const oldTrades = await pool.query("SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE') AND trade_id != $2", [symbol, trade_id]);
         for (const t of oldTrades.rows) {
             await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)' WHERE trade_id = $1", [t.trade_id]);
             if(t.telegram_msg_id) {
-                bot.sendMessage(CHAT_ID, `🔄 <b>Trade Reversed</b>\n❌ Closed by new signal.`, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'HTML' });
+                // ✅ FIXED: Template Literal
+                const revMsg = `🔄 <b>Trade Reversed</b>
+❌ Closed by new signal.`;
+                bot.sendMessage(CHAT_ID, revMsg, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'HTML' });
             }
         }
 
-        // Insert New Trade
         const check = await pool.query("SELECT telegram_msg_id FROM trades WHERE trade_id = $1", [trade_id]);
         let msgId = check.rows[0]?.telegram_msg_id;
         
         const query = `INSERT INTO trades (trade_id, symbol, type, entry_price, sl_price, tp1_price, tp2_price, tp3_price, status, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SETUP', $9)
             ON CONFLICT (trade_id) DO UPDATE SET entry_price = EXCLUDED.entry_price, sl_price = EXCLUDED.sl_price, tp1_price = EXCLUDED.tp1_price, tp2_price = EXCLUDED.tp2_price, tp3_price = EXCLUDED.tp3_price, status = 'SETUP'`;
-        await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, getDBTime()]);
+        await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // ✅ SETUP MSG - Clean HTML
-        const msg = `✅ <b>SETUP CONFIRMED</b>\n\n` +
-                    `💎 <b>Symbol:</b> #${symbol}\n` +
-                    `🚀 <b>Type:</b> ${type}\n` +
-                    `🚪 <b>Entry:</b> ${entry}\n` +
-                    `🛑 <b>SL:</b> ${sl}\n\n` +
-                    `🎯 <b>TP1:</b> ${tp1}\n` +
-                    `🎯 <b>TP2:</b> ${tp2}\n` +
-                    `🎯 <b>TP3:</b> ${tp3}`;
+        // ✅ FIXED: Template Literal - Clean Layout
+        const msg = `✅ <b>SETUP CONFIRMED</b>
+
+💎 <b>Symbol:</b> #${symbol}
+🚀 <b>Type:</b> ${type}
+🚪 <b>Entry:</b> ${entry}
+🛑 <b>SL:</b> ${sl}
+
+🎯 <b>TP1:</b> ${tp1}
+🎯 <b>TP2:</b> ${tp2}
+🎯 <b>TP3:</b> ${tp3}`;
 
         const opts = { parse_mode: 'HTML' };
         if (msgId) opts.reply_to_message_id = msgId;
@@ -103,15 +113,18 @@ app.post('/api/log_event', async (req, res) => {
         const trade = result.rows[0];
 
         if (trade.status.includes('TP') && new_status === 'SL HIT') return res.json({ success: true, msg: "Profit Locked" });
+        if (trade.status === 'TP3 HIT' && (new_status === 'TP2 HIT' || new_status === 'TP1 HIT')) return res.json({ success: true });
+        if (trade.status === 'TP2 HIT' && new_status === 'TP1 HIT') return res.json({ success: true });
         if (trade.status === new_status) return res.json({ success: true });
 
         let points = calculatePoints(trade.type, trade.entry_price, price);
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // ✅ UPDATE MSG - Clean HTML
-        const msg = `⚡ <b>UPDATE: ${new_status}</b>\n\n` +
-                    `💎 <b>Symbol:</b> #${trade.symbol}\n` +
-                    `📉 <b>Price:</b> ${price}`;
+        // ✅ FIXED: Template Literal
+        const msg = `⚡ <b>UPDATE: ${new_status}</b>
+
+💎 <b>Symbol:</b> #${trade.symbol}
+📉 <b>Price:</b> ${price}`;
         
         const opts = { parse_mode: 'HTML' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
@@ -144,8 +157,8 @@ app.post('/api/delete_trades', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
     server.listen(PORT, () => {
-        // 🚨 CHECK LOGS FOR THIS NEW MESSAGE 🚨
-        console.log("✅ VERSION 3.0: HTML MODE ACTIVE"); 
+        // 🚨 CHECK YOUR RAILWAY LOGS FOR THIS MESSAGE 🚨
+        console.log("✅ VERSION 4.0: TEMPLATE LITERALS FIXED"); 
         console.log(`🚀 RD Broker Server running on ${PORT}`);
     });
 });
