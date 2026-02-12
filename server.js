@@ -39,7 +39,7 @@ function calculatePoints(type, entry, currentPrice) {
 }
 
 // --- CONVERTER: Fixes Underscores & Special Chars for Markdown ---
-// Escapes characters that break Telegram Markdown (like in #Brent_Crude)
+// This prevents the bot from crashing on symbols like #Brent_Crude
 function toMarkdown(text) {
     if (text === undefined || text === null) return "";
     return String(text)
@@ -66,7 +66,7 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // ✅ FIXED: No %0. Uses pure Template Literals.
+        // ✅ FIXED: Uses actual line breaks (Template Literals)
         const msg = `🚨 *NEW SIGNAL DETECTED*
 
 💎 *Symbol:* #${toMarkdown(symbol)}
@@ -93,7 +93,7 @@ app.post('/api/setup_confirmed', async (req, res) => {
     const dbTime = getDBTime();
 
     try {
-        // --- CHECK FOR REVERSAL (Switching Sides) ---
+        // --- CHECK FOR REVERSAL ---
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE') AND trade_id != $2",
             [symbol, trade_id]
@@ -105,7 +105,6 @@ app.post('/api/setup_confirmed', async (req, res) => {
 
             await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)', points_gained = $1 WHERE trade_id = $2", [finalPoints, t.trade_id]);
             
-            // ✅ FIXED: Switching Sides Message
             if(t.telegram_msg_id) {
                 const revMsg = `🔄 *SWITCHING SIDES*\nOld Trade Closed. Result: ${finalPoints.toFixed(2)}`;
                 bot.sendMessage(CHAT_ID, revMsg, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'Markdown' });
@@ -126,7 +125,7 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // ✅ FIXED: Clean Setup Message (Fixes 'ntry' typo and %0)
+        // ✅ FIXED: Clean Markdown Message
         const msg = `📋 *SETUP CONFIRMED*
 
 *${toMarkdown(symbol)}* (${toMarkdown(type)})
@@ -186,7 +185,7 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // ✅ FIXED: Clean Update Message (Removes %0)
+        // ✅ FIXED: Clean Markdown Message (Removes %0)
         const msg = `⚡ *UPDATE: ${toMarkdown(new_status)}*
 
 💎 *Symbol:* #${toMarkdown(trade.symbol)}
