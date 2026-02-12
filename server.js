@@ -38,15 +38,15 @@ function calculatePoints(type, entry, currentPrice) {
     return (type === 'BUY') ? (currentPrice - entry) : (entry - currentPrice);
 }
 
-// --- CONVERTER (Fixes the _ issue) ---
-// This helper escapes characters that break Telegram Markdown
+// --- CONVERTER: Fixes Underscores & Special Chars for Markdown ---
+// This function escapes characters that crash Telegram Markdown
 function toMarkdown(text) {
-    if (!text) return "";
+    if (text === undefined || text === null) return "";
     return String(text)
-        .replace(/_/g, "\\_")  // Fixes symbols like #Brent_Crude
+        .replace(/_/g, "\\_")  // Fixes #Brent_Crude -> #Brent\_Crude
         .replace(/\*/g, "\\*") // Fixes accidental bolding
-        .replace(/\[/g, "\\[") // Fixes links
-        .replace(/`/g, "\\`"); // Fixes code blocks
+        .replace(/\[/g, "\\[") // Fixes broken links
+        .replace(/`/g, "\\`"); // Fixes code block errors
 }
 
 // --- API ENDPOINTS ---
@@ -66,8 +66,8 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // --- FIXED: MARKDOWN + CONVERTER ---
-        // We wrap variables in toMarkdown() to safely escape underscores
+        // ✅ FIXED: Using backticks for real newlines (No %0)
+        // ✅ FIXED: Using toMarkdown() to handle underscores safely
         const msg = `🚨 *NEW SIGNAL DETECTED*
 
 💎 *Symbol:* #${toMarkdown(symbol)}
@@ -121,7 +121,7 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // --- FIXED: MARKDOWN + CONVERTER ---
+        // ✅ FIXED: Clean Markdown Message
         const msg = `✅ *SETUP CONFIRMED*
 
 💎 *Symbol:* #${toMarkdown(symbol)}
@@ -144,7 +144,7 @@ app.post('/api/setup_confirmed', async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// 4. PRICE UPDATE (Disabled in MT4, but keeping endpoint just in case)
+// 4. PRICE UPDATE
 app.post('/api/price_update', async (req, res) => {
     const { symbol, bid, ask } = req.body;
     try {
@@ -171,17 +171,20 @@ app.post('/api/log_event', async (req, res) => {
 
         // --- PROFIT LOCK LOGIC ---
         if (trade.status.includes('TP') && new_status === 'SL HIT') {
+            console.log(`🛡️ Profit Locked for ${trade.symbol}. Ignoring SL Signal.`);
             return res.json({ success: true, msg: "Profit Locked: SL Ignored" });
         }
         if (trade.status === 'TP3 HIT' && (new_status === 'TP2 HIT' || new_status === 'TP1 HIT')) return res.json({ success: true });
         if (trade.status === 'TP2 HIT' && new_status === 'TP1 HIT') return res.json({ success: true });
+
+        // Check if status is same (duplicate check)
         if (trade.status === new_status) return res.json({ success: true }); 
 
         let points = calculatePoints(trade.type, trade.entry_price, price);
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // --- FIXED: MARKDOWN + CONVERTER ---
+        // ✅ FIXED: Clean Markdown Message
         const msg = `⚡ *UPDATE: ${toMarkdown(new_status)}*
 
 💎 *Symbol:* #${toMarkdown(trade.symbol)}
@@ -205,6 +208,7 @@ app.post('/api/delete_trades', async (req, res) => {
     if (password !== DELETE_PASSWORD) {
         return res.status(401).json({ success: false, msg: "❌ Incorrect Password!" });
     }
+
     if (!trade_ids || !Array.isArray(trade_ids) || trade_ids.length === 0) {
         return res.status(400).json({ success: false, msg: "No IDs provided" });
     }
@@ -212,6 +216,7 @@ app.post('/api/delete_trades', async (req, res) => {
     try {
         const query = "DELETE FROM trades WHERE trade_id = ANY($1)";
         await pool.query(query, [trade_ids]);
+        
         io.emit('trade_update'); 
         res.json({ success: true });
     } catch (err) { 
