@@ -39,14 +39,14 @@ function calculatePoints(type, entry, currentPrice) {
 }
 
 // --- CONVERTER: Fixes Underscores & Special Chars for Markdown ---
-// This function escapes characters that crash Telegram Markdown
+// This keeps your bot from crashing on symbols like #Brent_Crude
 function toMarkdown(text) {
     if (text === undefined || text === null) return "";
     return String(text)
-        .replace(/_/g, "\\_")  // Fixes #Brent_Crude -> #Brent\_Crude
-        .replace(/\*/g, "\\*") // Fixes accidental bolding
-        .replace(/\[/g, "\\[") // Fixes broken links
-        .replace(/`/g, "\\`"); // Fixes code block errors
+        .replace(/_/g, "\\_")  
+        .replace(/\*/g, "\\*") 
+        .replace(/\[/g, "\\[") 
+        .replace(/`/g, "\\`"); 
 }
 
 // --- API ENDPOINTS ---
@@ -66,13 +66,11 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // ✅ FIXED: Using backticks for real newlines (No %0)
-        // ✅ FIXED: Using toMarkdown() to handle underscores safely
-        const msg = `🚨 *NEW SIGNAL DETECTED*
-
-💎 *Symbol:* #${toMarkdown(symbol)}
-📊 *Type:* ${toMarkdown(type)}
-🕒 *Time:* ${toMarkdown(istTime)}`;
+        // --- MATCHED STYLE: Clean Markdown ---
+        const msg = `🚨 **NEW SIGNAL DETECTED**\n\n` +
+                    `💎 **Symbol:** #${toMarkdown(symbol)}\n` +
+                    `📊 **Type:** ${toMarkdown(type)}\n` +
+                    `🕒 **Time:** ${toMarkdown(istTime)}`;
 
         const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' });
         
@@ -88,25 +86,34 @@ app.post('/api/signal_detected', async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// 3. SETUP CONFIRMED
+// 3. SETUP CONFIRMED (Refactored to match your request)
 app.post('/api/setup_confirmed', async (req, res) => {
     const { trade_id, symbol, type, entry, sl, tp1, tp2, tp3 } = req.body;
     const dbTime = getDBTime();
 
     try {
+        // --- CHECK FOR REVERSAL ---
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE') AND trade_id != $2",
             [symbol, trade_id]
         );
+        
         for (const t of oldTrades.rows) {
-            await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)' WHERE trade_id = $1", [t.trade_id]);
+            // Calculate final result of the old trade (using new entry as close price)
+            let closePrice = parseFloat(entry);
+            let finalPoints = calculatePoints(t.type, t.entry_price, closePrice);
+
+            // Update Old Trade in DB
+            await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)', points_gained = $1 WHERE trade_id = $2", [finalPoints, t.trade_id]);
+            
+            // Notify closure (As requested in your reference)
             if(t.telegram_msg_id) {
-                const revMsg = `🔄 *Trade Reversed*
-❌ Closed by new signal.`;
+                const revMsg = `🔄 **SWITCHING SIDES**\nOld Trade Closed. Result: ${finalPoints.toFixed(5)}`;
                 bot.sendMessage(CHAT_ID, revMsg, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'Markdown' });
             }
         }
 
+        // --- UPDATE OR INSERT NEW TRADE ---
         const check = await pool.query("SELECT telegram_msg_id FROM trades WHERE trade_id = $1", [trade_id]);
         let msgId = check.rows[0]?.telegram_msg_id;
 
@@ -121,17 +128,15 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // ✅ FIXED: Clean Markdown Message
-        const msg = `✅ *SETUP CONFIRMED*
-
-💎 *Symbol:* #${toMarkdown(symbol)}
-🚀 *Type:* ${toMarkdown(type)}
-🚪 *Entry:* ${toMarkdown(entry)}
-🛑 *SL:* ${toMarkdown(sl)}
-
-🎯 *TP1:* ${toMarkdown(tp1)}
-🎯 *TP2:* ${toMarkdown(tp2)}
-🎯 *TP3:* ${toMarkdown(tp3)}`;
+        // --- STEP B: SETUP CONFIRMED MSG (Exact Reference Format) ---
+        // Using ** for bold and \n for new lines
+        const msg = `📋 **SETUP CONFIRMED**\n\n` + 
+                    `**${toMarkdown(symbol)}** (${toMarkdown(type)})\n` +
+                    `Entry: ${toMarkdown(entry)}\n` + 
+                    `SL: ${toMarkdown(sl)}\n\n` + 
+                    `TP1: ${toMarkdown(tp1)}\n` + 
+                    `TP2: ${toMarkdown(tp2)}\n` + 
+                    `TP3: ${toMarkdown(tp3)}`;
 
         const opts = { parse_mode: 'Markdown' };
         if (msgId) opts.reply_to_message_id = msgId;
@@ -171,24 +176,21 @@ app.post('/api/log_event', async (req, res) => {
 
         // --- PROFIT LOCK LOGIC ---
         if (trade.status.includes('TP') && new_status === 'SL HIT') {
-            console.log(`🛡️ Profit Locked for ${trade.symbol}. Ignoring SL Signal.`);
             return res.json({ success: true, msg: "Profit Locked: SL Ignored" });
         }
         if (trade.status === 'TP3 HIT' && (new_status === 'TP2 HIT' || new_status === 'TP1 HIT')) return res.json({ success: true });
         if (trade.status === 'TP2 HIT' && new_status === 'TP1 HIT') return res.json({ success: true });
 
-        // Check if status is same (duplicate check)
         if (trade.status === new_status) return res.json({ success: true }); 
 
         let points = calculatePoints(trade.type, trade.entry_price, price);
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // ✅ FIXED: Clean Markdown Message
-        const msg = `⚡ *UPDATE: ${toMarkdown(new_status)}*
-
-💎 *Symbol:* #${toMarkdown(trade.symbol)}
-📉 *Price:* ${toMarkdown(price)}`;
+        // --- MATCHED STYLE: Clean Markdown ---
+        const msg = `⚡ **UPDATE: ${toMarkdown(new_status)}**\n\n` +
+                    `💎 **Symbol:** #${toMarkdown(trade.symbol)}\n` +
+                    `📉 **Price:** ${toMarkdown(price)}`;
         
         const opts = { parse_mode: 'Markdown' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
