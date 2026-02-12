@@ -64,7 +64,7 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // ✅ FIXED: Using Markdown + Template Literals (Like your working file)
+        // ✅ FIXED: Using Markdown + Template Literals (Matches your working file)
         const msg = `🚨 **NEW SIGNAL DETECTED**
 
 💎 **Symbol:** #${toMarkdown(symbol)}
@@ -120,7 +120,7 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // ✅ FIXED: Markdown Style Setup (Matches your reference)
+        // ✅ FIXED: Markdown Style Setup (Clean, no HTML)
         const msg = `✅ **SETUP CONFIRMED**
 
 💎 **Symbol:** #${toMarkdown(symbol)}
@@ -225,5 +225,5 @@ app.post('/api/delete_trades', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
-    server.listen(PORT, () => console.log(`🚀 RD Broker Server running on ${PORT}`));
+    server.listen(PORT, () => console.log(`🚀 RD Broker Server running on ${PORT} | VERSION 4.0 FIXED`));
 });
