@@ -68,7 +68,7 @@ app.post('/api/signal_detected', async (req, res) => {
     try {
         // --- MATCHED STYLE: Clean Markdown ---
         const msg = `🚨 **NEW SIGNAL DETECTED**\n\n` +
-                    `💎 **Symbol:** #${toMarkdown(symbol)}\n` +
+                    `💎 **Symbol:** ${toMarkdown(symbol)}\n` +
                     `📊 **Type:** ${toMarkdown(type)}\n` +
                     `🕒 **Time:** ${toMarkdown(istTime)}`;
 
@@ -189,7 +189,7 @@ app.post('/api/log_event', async (req, res) => {
 
         // --- MATCHED STYLE: Clean Markdown ---
         const msg = `⚡ **UPDATE: ${toMarkdown(new_status)}**\n\n` +
-                    `💎 **Symbol:** #${toMarkdown(trade.symbol)}\n` +
+                    `💎 **Symbol:** ${toMarkdown(trade.symbol)}\n` +
                     `📉 **Price:** ${toMarkdown(price)}`;
         
         const opts = { parse_mode: 'Markdown' };
