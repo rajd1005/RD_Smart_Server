@@ -21,39 +21,28 @@ async function fetchTrades() {
         const response = await fetch(API_URL);
         allTrades = await response.json();
         
-        // --- NEW: Populate Symbol Dropdown ---
         populateSymbolFilter(allTrades);
-        
         applyFilters(checkedIds); 
     } catch (error) { console.error(error); }
 }
 
-// --- NEW FUNCTION: Extract Unique Symbols ---
 function populateSymbolFilter(trades) {
     const symbolSelect = document.getElementById('filterSymbol');
-    const currentVal = symbolSelect.value; // Remember selection
-    
-    // Get unique symbols
+    const currentVal = symbolSelect.value;
     const uniqueSymbols = [...new Set(trades.map(t => t.symbol))].sort();
     
-    // Clear existing (except first "All" option)
     symbolSelect.innerHTML = '<option value="">All Symbols</option>';
-    
     uniqueSymbols.forEach(sym => {
         const option = document.createElement('option');
         option.value = sym;
         option.text = sym;
         symbolSelect.appendChild(option);
     });
-    
-    // Restore selection if it still exists
-    if(uniqueSymbols.includes(currentVal)) {
-        symbolSelect.value = currentVal;
-    }
+    if(uniqueSymbols.includes(currentVal)) symbolSelect.value = currentVal;
 }
 
 function applyFilters(preserveIds = []) {
-    const filterSymbol = document.getElementById('filterSymbol').value; // Value is now exact symbol or ""
+    const filterSymbol = document.getElementById('filterSymbol').value;
     const filterStatus = document.getElementById('filterStatus').value;
     const filterType = document.getElementById('filterType').value;
     const filterDateInput = document.getElementById('filterDate').value; 
@@ -163,38 +152,60 @@ function calculateStats(trades) {
     if(document.getElementById('activeTrades')) document.getElementById('activeTrades').innerText = active;
 }
 
+// --- NEW: TOGGLE MODES ---
 function toggleSelectionMode() {
     isSelectionMode = !isSelectionMode;
     const checkboxes = document.querySelectorAll('.trade-checkbox');
-    const icon = document.getElementById('selectIcon');
+    const navDefault = document.getElementById('navDefault');
+    const navSelection = document.getElementById('navSelection');
+
+    // Toggle Nav Bars
+    if(isSelectionMode) {
+        navDefault.style.display = 'none';
+        navSelection.style.display = 'flex';
+    } else {
+        navDefault.style.display = 'flex';
+        navSelection.style.display = 'none';
+        // Uncheck all if cancelled
+        checkboxes.forEach(cb => cb.checked = false);
+    }
+
+    // Toggle Checkboxes Visibility
     checkboxes.forEach(cb => cb.style.display = isSelectionMode ? 'block' : 'none');
-    icon.style.color = isSelectionMode ? '#007aff' : '';
-    if(!isSelectionMode) checkboxes.forEach(cb => cb.checked = false);
+}
+
+// --- NEW: SELECT ALL FUNCTION ---
+function selectAllTrades() {
+    const checkboxes = document.querySelectorAll('.trade-checkbox');
+    // Check if ALL are currently checked
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    
+    // Toggle state: If all checked -> Uncheck all. Otherwise -> Check all.
+    checkboxes.forEach(cb => cb.checked = !allChecked);
 }
 
 function getCheckedIds() { return Array.from(document.querySelectorAll('.trade-checkbox:checked')).map(cb => cb.value); }
 
-// --- UPDATED DELETE FUNCTION (WITH PASSWORD) ---
 async function deleteSelected() {
     if (!isSelectionMode) { toggleSelectionMode(); return; }
     const ids = getCheckedIds();
     if (ids.length === 0) return;
     
-    // 1. Prompt for Password
     const password = prompt("🔒 Enter Admin Password to delete:");
-    if (!password) return; // Cancelled
+    if (!password) return; 
 
     try {
         const res = await fetch('/api/delete_trades', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ trade_ids: ids, password: password }) // Send Password
+            body: JSON.stringify({ trade_ids: ids, password: password }) 
         });
         const result = await res.json();
         
         if (result.success) {
-            toggleSelectionMode();
+            toggleSelectionMode(); // Exit mode
             alert("✅ Deleted Successfully");
+            // No need to fetch, socket will trigger update
         } else {
             alert(result.msg || "❌ Error Deleting");
         }
@@ -202,6 +213,6 @@ async function deleteSelected() {
 }
 
 document.getElementById('filterDate').addEventListener('change', () => applyFilters());
-document.getElementById('filterSymbol').addEventListener('change', () => applyFilters()); // Change event for Select
+document.getElementById('filterSymbol').addEventListener('change', () => applyFilters());
 document.getElementById('filterStatus').addEventListener('change', () => applyFilters());
 document.getElementById('filterType').addEventListener('change', () => applyFilters());
