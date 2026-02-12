@@ -11,6 +11,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public')); 
 
+// --- CONFIG ---
+const DELETE_PASSWORD = process.env.DELETE_PASSWORD || "admin123"; 
+
 // --- SOCKET.IO SETUP ---
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -141,7 +144,9 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        const msg = `⚡ **UPDATE: ${new_status}**\nPrice: ${price}\nProfit: ${points.toFixed(5)}`;
+        // --- UPDATED MESSAGE: REMOVED PROFIT ---
+        const msg = `⚡ **UPDATE: ${new_status}**\nPrice: ${price}`;
+        
         const opts = { parse_mode: 'Markdown' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
 
@@ -153,10 +158,15 @@ app.post('/api/log_event', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 6. BULK DELETE
+// --- UPDATED DELETE ENDPOINT (WITH PASSWORD) ---
 app.post('/api/delete_trades', async (req, res) => {
-    const { trade_ids } = req.body; 
+    const { trade_ids, password } = req.body; 
     
+    // 1. Check Password
+    if (password !== DELETE_PASSWORD) {
+        return res.status(401).json({ success: false, msg: "❌ Incorrect Password!" });
+    }
+
     if (!trade_ids || !Array.isArray(trade_ids) || trade_ids.length === 0) {
         return res.status(400).json({ success: false, msg: "No IDs provided" });
     }
@@ -165,7 +175,7 @@ app.post('/api/delete_trades', async (req, res) => {
         const query = "DELETE FROM trades WHERE trade_id = ANY($1)";
         await pool.query(query, [trade_ids]);
         
-        io.emit('trade_update'); // <--- REAL-TIME UPDATE
+        io.emit('trade_update'); 
         res.json({ success: true });
     } catch (err) { 
         console.error(err); 
@@ -176,5 +186,5 @@ app.post('/api/delete_trades', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
     // IMPORTANT: Use server.listen instead of app.listen for Socket.io
-    server.listen(PORT, () => console.log(`🚀 Trade Manager (Socket.io) running on ${PORT}`));
+    server.listen(PORT, () => console.log(`🚀 RD Broker Server running on ${PORT}`));
 });

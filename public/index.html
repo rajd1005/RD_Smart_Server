@@ -10,228 +10,101 @@
     
     <style>
         :root {
-            --bg-color: #f0f2f5;
-            --card-bg: #ffffff;
-            --text-primary: #212529;
-            --text-secondary: #878a8d;
+            --bg-color: #f0f2f5; --card-bg: #ffffff;
+            --text-primary: #212529; --text-secondary: #878a8d;
             --border-color: #e9ecef;
-            
-            --green: #00b346; /* Broker Green */
-            --red: #ff3b30;   /* Broker Red */
-            --blue: #007aff;
+            --green: #00b346; --red: #ff3b30; --blue: #007aff;
         }
-
-        body { 
-            background-color: var(--bg-color); 
-            font-family: 'Roboto', sans-serif;
-            color: var(--text-primary);
-            padding-bottom: 60px; /* Minimal bottom space */
-            font-size: 13px; /* Broker app standard size */
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* --- HEADER --- */
-        .app-header {
-            background: #fff;
-            border-bottom: 1px solid var(--border-color);
-            padding: 8px 15px;
-            display: flex; justify-content: space-between; align-items: center;
-            position: sticky; top: 0; z-index: 100;
-        }
+        body { background-color: var(--bg-color); font-family: 'Roboto', sans-serif; color: var(--text-primary); padding-bottom: 60px; font-size: 13px; -webkit-font-smoothing: antialiased; }
+        
+        /* HEADER */
+        .app-header { background: #fff; border-bottom: 1px solid var(--border-color); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
         .app-title { font-size: 16px; font-weight: 700; color: #000; letter-spacing: -0.5px; }
         .server-time { font-size: 11px; color: var(--text-secondary); font-family: monospace; }
 
-        /* --- STATS BAR (Scrollable) --- */
-        .stats-bar {
-            background: #fff;
-            padding: 10px 15px;
-            display: flex; gap: 15px;
-            overflow-x: auto;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 10px;
-        }
+        /* STATS */
+        .stats-bar { background: #fff; padding: 10px 15px; display: flex; gap: 15px; overflow-x: auto; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; }
         .stats-bar::-webkit-scrollbar { display: none; }
-        
         .stat-item { min-width: 80px; display: flex; flex-direction: column; }
         .stat-lbl { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; font-weight: 500; }
         .stat-val { font-size: 15px; font-weight: 700; color: #000; line-height: 1.1; }
         .val-green { color: var(--green); }
+        .val-red { color: var(--red); }
 
-        /* --- TRADE LIST --- */
+        /* TRADE CARDS */
         .trade-list { padding: 0 10px; }
-        
-        .trade-card {
-            background: #fff;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 6px; /* Very tight spacing */
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            border: 1px solid transparent;
-            position: relative;
-        }
-        
-        /* Layout Grid */
+        .trade-card { background: #fff; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); position: relative; }
         .tc-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
         .tc-mid { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .tc-bot { 
-            display: flex; justify-content: space-between; 
-            background: #f8f9fa; padding: 6px 8px; border-radius: 4px;
-            font-size: 11px;
-        }
-
-        /* Typography */
+        .tc-bot { display: flex; justify-content: space-between; background: #f8f9fa; padding: 6px 8px; border-radius: 4px; font-size: 11px; }
         .tc-symbol { font-size: 15px; font-weight: 700; color: #000; }
         .tc-profit { font-size: 16px; font-weight: 700; text-align: right; }
         .tc-time { font-size: 10px; color: var(--text-secondary); }
-        
-        /* Colors */
-        .c-buy { color: var(--blue); }
-        .c-sell { color: var(--red); }
-        .c-green { color: var(--green); }
-        .c-red { color: var(--red); }
-        
-        /* Badges & Status */
-        .type-badge { 
-            font-size: 10px; font-weight: 700; text-transform: uppercase; 
-            padding: 2px 5px; border-radius: 3px; 
-        }
-        .bg-buy { background: #e3f2fd; color: var(--blue); }
-        .bg-sell { background: #ffebee; color: var(--red); }
-        
+        .c-green { color: var(--green); } .c-red { color: var(--red); }
+        .type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 5px; border-radius: 3px; }
+        .bg-buy { background: #e3f2fd; color: var(--blue); } .bg-sell { background: #ffebee; color: var(--red); }
         .status-txt { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-
-        /* Bottom Details */
         .detail-grp { display: flex; gap: 10px; }
         .dt-item { display: flex; flex-direction: column; }
         .dt-lbl { font-size: 9px; color: var(--text-secondary); margin-bottom: 1px; }
         .dt-val { font-weight: 600; color: #333; }
 
-        /* --- BOTTOM NAV --- */
-        .bottom-nav {
-            position: fixed; bottom: 0; left: 0; width: 100%;
-            background: #fff; border-top: 1px solid var(--border-color);
-            padding: 8px 0;
-            display: flex; justify-content: space-around;
-            z-index: 999;
-        }
-        .b-btn {
-            background: none; border: none; 
-            display: flex; flex-direction: column; align-items: center;
-            font-size: 10px; color: var(--text-secondary); font-weight: 500;
-        }
+        /* NAV & FILTER */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; border-top: 1px solid var(--border-color); padding: 8px 0; display: flex; justify-content: space-around; z-index: 999; }
+        .b-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--text-secondary); font-weight: 500; }
         .b-btn .material-icons-round { font-size: 22px; margin-bottom: 2px; }
-        .b-active { color: var(--blue); }
-        .b-del { color: var(--red); }
-
-        /* Filter Modal */
+        .b-active { color: var(--blue); } .b-del { color: var(--red); }
         .offcanvas-bottom { height: auto !important; border-radius: 15px 15px 0 0; }
         .form-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 2px; }
         .form-control, .form-select { font-size: 13px; padding: 8px; }
-
-        /* Checkbox */
         .custom-check { width: 16px; height: 16px; margin-right: 8px; border-radius: 3px; }
-
         #noData { padding: 50px; text-align: center; color: var(--text-secondary); }
     </style>
 </head>
 <body>
 
     <header class="app-header">
-        <div class="app-title">RD MT4 FOREX</div>
+        <div class="app-title">RD MT4 IND</div>
         <div class="server-time" id="clock">00:00:00</div>
     </header>
 
     <div class="stats-bar">
-        <div class="stat-item">
-            <span class="stat-lbl">Points</span>
-            <span class="stat-val val-green" id="totalPips">0.00</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-lbl">Active</span>
-            <span class="stat-val" id="activeTrades">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-lbl">Win Rate</span>
-            <span class="stat-val" id="winRate">0%</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-lbl">Signals</span>
-            <span class="stat-val" id="totalTrades">0</span>
-        </div>
+        <div class="stat-item"><span class="stat-lbl">Points</span><span class="stat-val" id="totalPips">0.00</span></div>
+        <div class="stat-item"><span class="stat-lbl">Active</span><span class="stat-val" id="activeTrades">0</span></div>
+        <div class="stat-item"><span class="stat-lbl">Win Rate</span><span class="stat-val" id="winRate">0%</span></div>
+        <div class="stat-item"><span class="stat-lbl">Signals</span><span class="stat-val" id="totalTrades">0</span></div>
     </div>
 
     <div class="trade-list" id="tradeListContainer"></div>
-
-    <div id="noData" style="display:none;">
-        <span class="material-icons-round" style="font-size:32px; opacity:0.3;">toc</span>
-        <div class="mt-2 text-muted small">No trades found</div>
-    </div>
+    <div id="noData" style="display:none;"><span class="material-icons-round" style="font-size:32px; opacity:0.3;">toc</span><div class="mt-2 text-muted small">No trades found</div></div>
 
     <nav class="bottom-nav">
-        <button class="b-btn b-active" onclick="fetchTrades()">
-            <span class="material-icons-round">refresh</span>
-            Refresh
-        </button>
-        <button class="b-btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#filterSheet">
-            <span class="material-icons-round">filter_list</span>
-            Filter
-        </button>
-        <button class="b-btn" onclick="toggleSelectionMode()">
-            <span class="material-icons-round" id="selectIcon">check_circle</span>
-            Select
-        </button>
-        <button class="b-btn b-del" onclick="deleteSelected()">
-            <span class="material-icons-round">delete</span>
-            Delete
-        </button>
+        <button class="b-btn b-active" onclick="fetchTrades()"><span class="material-icons-round">refresh</span>Refresh</button>
+        <button class="b-btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#filterSheet"><span class="material-icons-round">filter_list</span>Filter</button>
+        <button class="b-btn" onclick="toggleSelectionMode()"><span class="material-icons-round" id="selectIcon">check_circle</span>Select</button>
+        <button class="b-btn b-del" onclick="deleteSelected()"><span class="material-icons-round">delete</span>Delete</button>
     </nav>
 
     <div class="offcanvas offcanvas-bottom" tabindex="-1" id="filterSheet">
-        <div class="offcanvas-header pb-0">
-            <h6 class="offcanvas-title fw-bold">Filter Options</h6>
-            <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas"></button>
-        </div>
+        <div class="offcanvas-header pb-0"><h6 class="offcanvas-title fw-bold">Filter Options</h6><button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas"></button></div>
         <div class="offcanvas-body pt-2">
             <div class="row g-2">
-                <div class="col-6">
-                    <label class="form-label">DATE</label>
-                    <input type="date" id="filterDate" class="form-control">
-                </div>
-                <div class="col-6">
-                    <label class="form-label">TYPE</label>
-                    <select id="filterType" class="form-select">
-                        <option value="ALL">All</option>
-                        <option value="BUY">Buy</option>
-                        <option value="SELL">Sell</option>
+                <div class="col-6"><label class="form-label">DATE</label><input type="date" id="filterDate" class="form-control"></div>
+                <div class="col-6"><label class="form-label">TYPE</label><select id="filterType" class="form-select"><option value="ALL">All</option><option value="BUY">Buy</option><option value="SELL">Sell</option></select></div>
+                <div class="col-12"><label class="form-label">SYMBOL</label>
+                    <select id="filterSymbol" class="form-select">
+                        <option value="">All Symbols</option>
                     </select>
                 </div>
-                <div class="col-12">
-                    <label class="form-label">SYMBOL</label>
-                    <input type="text" id="filterSymbol" class="form-control" placeholder="Search...">
-                </div>
-                <div class="col-12">
-                    <label class="form-label">STATUS</label>
-                    <select id="filterStatus" class="form-select">
-                        <option value="ALL">All</option>
-                        <option value="OPEN">Running</option>
-                        <option value="TP">Profitable</option>
-                        <option value="SL">Loss</option>
-                    </select>
-                </div>
+                <div class="col-12"><label class="form-label">STATUS</label><select id="filterStatus" class="form-select"><option value="ALL">All</option><option value="OPEN">Running</option><option value="TP">Profitable</option><option value="SL">Loss</option></select></div>
             </div>
-            <button class="btn btn-primary w-100 mt-3 fw-bold" data-bs-dismiss="offcanvas" onclick="applyFilters()">
-                Apply
-            </button>
+            <button class="btn btn-primary w-100 mt-3 fw-bold" data-bs-dismiss="offcanvas" onclick="applyFilters()">Apply</button>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>
-    <script>
-        setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB');
-        }, 1000);
-    </script>
+    <script>setInterval(() => { document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB'); }, 1000);</script>
 </body>
 </html>

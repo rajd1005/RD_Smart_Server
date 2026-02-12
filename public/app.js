@@ -20,12 +20,40 @@ async function fetchTrades() {
     try {
         const response = await fetch(API_URL);
         allTrades = await response.json();
+        
+        // --- NEW: Populate Symbol Dropdown ---
+        populateSymbolFilter(allTrades);
+        
         applyFilters(checkedIds); 
     } catch (error) { console.error(error); }
 }
 
+// --- NEW FUNCTION: Extract Unique Symbols ---
+function populateSymbolFilter(trades) {
+    const symbolSelect = document.getElementById('filterSymbol');
+    const currentVal = symbolSelect.value; // Remember selection
+    
+    // Get unique symbols
+    const uniqueSymbols = [...new Set(trades.map(t => t.symbol))].sort();
+    
+    // Clear existing (except first "All" option)
+    symbolSelect.innerHTML = '<option value="">All Symbols</option>';
+    
+    uniqueSymbols.forEach(sym => {
+        const option = document.createElement('option');
+        option.value = sym;
+        option.text = sym;
+        symbolSelect.appendChild(option);
+    });
+    
+    // Restore selection if it still exists
+    if(uniqueSymbols.includes(currentVal)) {
+        symbolSelect.value = currentVal;
+    }
+}
+
 function applyFilters(preserveIds = []) {
-    const filterSymbol = document.getElementById('filterSymbol').value.toUpperCase();
+    const filterSymbol = document.getElementById('filterSymbol').value; // Value is now exact symbol or ""
     const filterStatus = document.getElementById('filterStatus').value;
     const filterType = document.getElementById('filterType').value;
     const filterDateInput = document.getElementById('filterDate').value; 
@@ -35,7 +63,7 @@ function applyFilters(preserveIds = []) {
         const tradeDateStr = tradeDateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
         return ((filterDateInput === "") || (tradeDateStr === filterDateInput)) &&
-               (trade.symbol.includes(filterSymbol)) &&
+               (filterSymbol === "" || trade.symbol === filterSymbol) &&
                (filterType === 'ALL' || trade.type === filterType) &&
                (filterStatus === 'ALL' || 
                (filterStatus === 'TP' && trade.status.includes('TP')) ||
@@ -47,7 +75,6 @@ function applyFilters(preserveIds = []) {
     calculateStats(filtered);
 }
 
-// --- ULTRA COMPACT RENDERER ---
 function renderTrades(trades, preserveIds) {
     const container = document.getElementById('tradeListContainer');
     const noDataMsg = document.getElementById('noData');
@@ -63,11 +90,8 @@ function renderTrades(trades, preserveIds) {
 
     trades.forEach((trade) => {
         const dateObj = new Date(trade.created_at);
-        const timeString = dateObj.toLocaleTimeString('en-US', { 
-            timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false 
-        });
-
-        // 2 Decimal Logic Everywhere
+        const timeString = dateObj.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+        
         const entry = parseFloat(trade.entry_price).toFixed(2);
         const sl = parseFloat(trade.sl_price).toFixed(2);
         const tp1 = parseFloat(trade.tp1_price).toFixed(2);
@@ -76,7 +100,6 @@ function renderTrades(trades, preserveIds) {
         const pts = parseFloat(trade.points_gained);
         const displayPts = pts.toFixed(2);
 
-        // Styling
         let profitColor = 'text-muted';
         let statusColor = '#878a8d';
         let statusText = trade.status.replace(' (Reversal)', '');
@@ -100,106 +123,85 @@ function renderTrades(trades, preserveIds) {
                     </div>
                     <div class="tc-profit ${profitColor}">${pts > 0 ? '+' : ''}${displayPts}</div>
                 </div>
-
                 <div class="tc-mid">
                     <span class="type-badge ${badgeClass}">${trade.type}</span>
                     <span class="tc-time">${timeString}</span>
                     <span class="status-txt ms-auto" style="color:${statusColor}">${statusText}</span>
                 </div>
-
                 <div class="tc-bot">
-                    <div class="dt-item">
-                        <span class="dt-lbl">ENTRY</span>
-                        <span class="dt-val">${entry}</span>
-                    </div>
-                    <div class="dt-item">
-                        <span class="dt-lbl">SL</span>
-                        <span class="dt-val c-red">${sl}</span>
-                    </div>
-                    <div class="dt-item">
-                        <span class="dt-lbl">TP1</span>
-                        <span class="dt-val">${tp1}</span>
-                    </div>
-                    <div class="dt-item">
-                        <span class="dt-lbl">TP2</span>
-                        <span class="dt-val">${tp2}</span>
-                    </div>
-                    <div class="dt-item">
-                        <span class="dt-lbl">TP3</span>
-                        <span class="dt-val">${tp3}</span>
-                    </div>
+                    <div class="dt-item"><span class="dt-lbl">ENTRY</span><span class="dt-val">${entry}</span></div>
+                    <div class="dt-item"><span class="dt-lbl">SL</span><span class="dt-val c-red">${sl}</span></div>
+                    <div class="dt-item"><span class="dt-lbl">TP1</span><span class="dt-val">${tp1}</span></div>
+                    <div class="dt-item"><span class="dt-lbl">TP2</span><span class="dt-val">${tp2}</span></div>
+                    <div class="dt-item"><span class="dt-lbl">TP3</span><span class="dt-val">${tp3}</span></div>
                 </div>
-            </div>
-        `;
+            </div>`;
         container.innerHTML += html;
     });
 }
 
 function calculateStats(trades) {
-    let totalPoints = 0;
-    let wins = 0;
-    let losses = 0;
-    let active = 0;
-
+    let totalPoints = 0; let wins = 0; let losses = 0; let active = 0;
     trades.forEach(t => {
         if (t.status === 'ACTIVE' || t.status === 'SETUP') active++;
         else {
             const pts = parseFloat(t.points_gained);
             totalPoints += pts;
-            if (pts > 0) wins++;
-            else if (pts < 0) losses++;
+            if (pts > 0) wins++; else if (pts < 0) losses++;
         }
     });
-
     const totalClosed = wins + losses;
     const winRate = totalClosed === 0 ? 0 : Math.round((wins / totalClosed) * 100);
 
-    // Update Stats with 2 Decimals
     if(document.getElementById('totalTrades')) document.getElementById('totalTrades').innerText = trades.length;
     if(document.getElementById('winRate')) document.getElementById('winRate').innerText = winRate + "%";
-    if(document.getElementById('totalPips')) document.getElementById('totalPips').innerText = totalPoints.toFixed(2);
-    if(document.getElementById('activeTrades')) document.getElementById('activeTrades').innerText = active;
     
-    // Color the total points
     const pipsEl = document.getElementById('totalPips');
-    pipsEl.className = totalPoints >= 0 ? 'stat-val val-green' : 'stat-val c-red';
+    pipsEl.innerText = totalPoints.toFixed(2);
+    pipsEl.className = totalPoints >= 0 ? 'stat-val val-green' : 'stat-val val-red';
+    
+    if(document.getElementById('activeTrades')) document.getElementById('activeTrades').innerText = active;
 }
 
-// --- UTILS ---
 function toggleSelectionMode() {
     isSelectionMode = !isSelectionMode;
     const checkboxes = document.querySelectorAll('.trade-checkbox');
     const icon = document.getElementById('selectIcon');
-    
     checkboxes.forEach(cb => cb.style.display = isSelectionMode ? 'block' : 'none');
     icon.style.color = isSelectionMode ? '#007aff' : '';
     if(!isSelectionMode) checkboxes.forEach(cb => cb.checked = false);
 }
 
-function getCheckedIds() {
-    return Array.from(document.querySelectorAll('.trade-checkbox:checked')).map(cb => cb.value);
-}
+function getCheckedIds() { return Array.from(document.querySelectorAll('.trade-checkbox:checked')).map(cb => cb.value); }
 
+// --- UPDATED DELETE FUNCTION (WITH PASSWORD) ---
 async function deleteSelected() {
     if (!isSelectionMode) { toggleSelectionMode(); return; }
     const ids = getCheckedIds();
     if (ids.length === 0) return;
     
-    if(!confirm(`Delete ${ids.length} trades?`)) return;
+    // 1. Prompt for Password
+    const password = prompt("🔒 Enter Admin Password to delete:");
+    if (!password) return; // Cancelled
 
     try {
         const res = await fetch('/api/delete_trades', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ trade_ids: ids })
+            body: JSON.stringify({ trade_ids: ids, password: password }) // Send Password
         });
         const result = await res.json();
-        if (result.success) toggleSelectionMode();
+        
+        if (result.success) {
+            toggleSelectionMode();
+            alert("✅ Deleted Successfully");
+        } else {
+            alert(result.msg || "❌ Error Deleting");
+        }
     } catch (err) { console.error(err); }
 }
 
-// Listeners
 document.getElementById('filterDate').addEventListener('change', () => applyFilters());
-document.getElementById('filterSymbol').addEventListener('keyup', () => applyFilters());
+document.getElementById('filterSymbol').addEventListener('change', () => applyFilters()); // Change event for Select
 document.getElementById('filterStatus').addEventListener('change', () => applyFilters());
 document.getElementById('filterType').addEventListener('change', () => applyFilters());
