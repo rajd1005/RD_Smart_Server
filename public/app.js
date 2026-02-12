@@ -1,62 +1,58 @@
 const API_URL = '/api/trades'; 
 let allTrades = []; 
+let isSelectionMode = false;
+const socket = io(); 
 
 window.onload = function() {
     setTodayDate();
     fetchTrades();
 };
 
-// --- FIX 1: Set Date Input to IST (YYYY-MM-DD) ---
+socket.on('trade_update', () => { fetchTrades(); });
+
 function setTodayDate() {
-    // 'en-CA' locale formats date as YYYY-MM-DD automatically
-    const istDate = new Date().toLocaleDateString('en-CA', { 
-        timeZone: 'Asia/Kolkata' 
-    });
+    const istDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     document.getElementById('filterDate').value = istDate;
 }
 
 async function fetchTrades() {
+    const checkedIds = getCheckedIds();
     try {
         const response = await fetch(API_URL);
         allTrades = await response.json();
-        applyFilters(); 
-    } catch (error) {
-        console.error("Error fetching trades:", error);
-    }
+        applyFilters(checkedIds); 
+    } catch (error) { console.error(error); }
 }
 
-// --- FIX 2: Filter Logic using IST Dates ---
-function applyFilters() {
+function applyFilters(preserveIds = []) {
     const filterSymbol = document.getElementById('filterSymbol').value.toUpperCase();
     const filterStatus = document.getElementById('filterStatus').value;
+    const filterType = document.getElementById('filterType').value;
     const filterDateInput = document.getElementById('filterDate').value; 
 
     const filtered = allTrades.filter(trade => {
-        // Convert the database time (UTC/ISO) to IST Date String (YYYY-MM-DD)
         const tradeDateObj = new Date(trade.created_at);
-        const tradeDateStr = tradeDateObj.toLocaleDateString('en-CA', { 
-            timeZone: 'Asia/Kolkata' 
-        });
+        const tradeDateStr = tradeDateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-        const matchesDate = (filterDateInput === "") || (tradeDateStr === filterDateInput);
-        const matchesSymbol = trade.symbol.includes(filterSymbol);
-        const matchesStatus = filterStatus === 'ALL' || 
-                              (filterStatus === 'TP' && trade.status.includes('TP')) ||
-                              (filterStatus === 'SL' && trade.status.includes('SL')) ||
-                              (filterStatus === 'OPEN' && trade.status === 'ACTIVE');
-
-        return matchesDate && matchesSymbol && matchesStatus;
+        return ((filterDateInput === "") || (tradeDateStr === filterDateInput)) &&
+               (trade.symbol.includes(filterSymbol)) &&
+               (filterType === 'ALL' || trade.type === filterType) &&
+               (filterStatus === 'ALL' || 
+               (filterStatus === 'TP' && trade.status.includes('TP')) ||
+               (filterStatus === 'SL' && trade.status.includes('SL')) ||
+               (filterStatus === 'OPEN' && trade.status === 'ACTIVE'));
     });
 
-    renderTable(filtered);
+    renderTrades(filtered, preserveIds);
     calculateStats(filtered);
 }
 
-function renderTable(trades) {
-    const tbody = document.getElementById('tradeTableBody');
-    const noDataMsg = document.getElementById('noDataMessage');
+// --- ULTRA COMPACT RENDERER ---
+function renderTrades(trades, preserveIds) {
+    const container = document.getElementById('tradeListContainer');
+    const noDataMsg = document.getElementById('noData');
     
-    tbody.innerHTML = '';
+    container.innerHTML = '';
     
     if (trades.length === 0) {
         if(noDataMsg) noDataMsg.style.display = 'block';
@@ -65,42 +61,77 @@ function renderTable(trades) {
         if(noDataMsg) noDataMsg.style.display = 'none';
     }
 
-    trades.forEach((trade, index) => {
+    trades.forEach((trade) => {
         const dateObj = new Date(trade.created_at);
-        
-        // --- FIX 3: Display Time in IST ---
         const timeString = dateObj.toLocaleTimeString('en-US', { 
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit', 
-            minute: '2-digit', 
-            hour12: true 
+            timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false 
         });
 
-        let statusClass = 'text-secondary';
-        if (trade.status === 'ACTIVE') statusClass = 'status-active';
-        if (trade.status.includes('TP')) statusClass = 'status-tp';
-        if (trade.status.includes('SL')) statusClass = 'status-sl';
+        // 2 Decimal Logic Everywhere
+        const entry = parseFloat(trade.entry_price).toFixed(2);
+        const sl = parseFloat(trade.sl_price).toFixed(2);
+        const tp1 = parseFloat(trade.tp1_price).toFixed(2);
+        const tp2 = parseFloat(trade.tp2_price).toFixed(2);
+        const tp3 = parseFloat(trade.tp3_price).toFixed(2);
+        const pts = parseFloat(trade.points_gained);
+        const displayPts = pts.toFixed(2);
 
-        let pts = parseFloat(trade.points_gained);
-        let ptsColor = pts > 0 ? 'text-success' : (pts < 0 ? 'text-danger' : 'text-muted');
+        // Styling
+        let profitColor = 'text-muted';
+        let statusColor = '#878a8d';
+        let statusText = trade.status.replace(' (Reversal)', '');
         
-        let displayPts = Math.abs(pts) < 10 && Math.abs(pts) > 0 ? pts.toFixed(5) : pts.toFixed(2);
+        if (trade.status === 'ACTIVE') { statusColor = '#007aff'; }
+        else if (trade.status.includes('TP')) { statusColor = '#00b346'; profitColor = 'c-green'; }
+        else if (trade.status.includes('SL')) { statusColor = '#ff3b30'; profitColor = 'c-red'; }
+        else if (pts > 0) { profitColor = 'c-green'; }
+        else if (pts < 0) { profitColor = 'c-red'; }
 
-        const row = `
-            <tr>
-                <td>${timeString}</td>
-                <td><b>${trade.symbol}</b></td>
-                <td><span class="badge ${trade.type === 'BUY' ? 'badge-buy' : 'badge-sell'}">${trade.type}</span></td>
-                <td class="${statusClass}">${trade.status}</td>
-                <td>${parseFloat(trade.entry_price).toFixed(5)}</td>
-                <td>${parseFloat(trade.sl_price).toFixed(5)}</td>
-                <td>${parseFloat(trade.tp1_price).toFixed(5)}</td>
-                <td>${parseFloat(trade.tp2_price).toFixed(5)}</td>
-                <td>${parseFloat(trade.tp3_price).toFixed(5)}</td>
-                <td class="fw-bold ${ptsColor}" style="font-size:1.1rem">${displayPts}</td>
-            </tr>
+        const badgeClass = trade.type === 'BUY' ? 'bg-buy' : 'bg-sell';
+        const isChecked = preserveIds.includes(trade.trade_id) ? 'checked' : '';
+        const checkDisplay = isSelectionMode ? 'block' : 'none';
+
+        const html = `
+            <div class="trade-card">
+                <div class="tc-top">
+                    <div class="d-flex align-items-center">
+                        <input type="checkbox" class="custom-check trade-checkbox" value="${trade.trade_id}" ${isChecked} style="display:${checkDisplay}">
+                        <div class="tc-symbol">${trade.symbol}</div>
+                    </div>
+                    <div class="tc-profit ${profitColor}">${pts > 0 ? '+' : ''}${displayPts}</div>
+                </div>
+
+                <div class="tc-mid">
+                    <span class="type-badge ${badgeClass}">${trade.type}</span>
+                    <span class="tc-time">${timeString}</span>
+                    <span class="status-txt ms-auto" style="color:${statusColor}">${statusText}</span>
+                </div>
+
+                <div class="tc-bot">
+                    <div class="dt-item">
+                        <span class="dt-lbl">ENTRY</span>
+                        <span class="dt-val">${entry}</span>
+                    </div>
+                    <div class="dt-item">
+                        <span class="dt-lbl">SL</span>
+                        <span class="dt-val c-red">${sl}</span>
+                    </div>
+                    <div class="dt-item">
+                        <span class="dt-lbl">TP1</span>
+                        <span class="dt-val">${tp1}</span>
+                    </div>
+                    <div class="dt-item">
+                        <span class="dt-lbl">TP2</span>
+                        <span class="dt-val">${tp2}</span>
+                    </div>
+                    <div class="dt-item">
+                        <span class="dt-lbl">TP3</span>
+                        <span class="dt-val">${tp3}</span>
+                    </div>
+                </div>
+            </div>
         `;
-        tbody.innerHTML += row;
+        container.innerHTML += html;
     });
 }
 
@@ -123,16 +154,52 @@ function calculateStats(trades) {
     const totalClosed = wins + losses;
     const winRate = totalClosed === 0 ? 0 : Math.round((wins / totalClosed) * 100);
 
+    // Update Stats with 2 Decimals
     if(document.getElementById('totalTrades')) document.getElementById('totalTrades').innerText = trades.length;
     if(document.getElementById('winRate')) document.getElementById('winRate').innerText = winRate + "%";
-    
-    let displayTotal = Math.abs(totalPoints) < 10 && Math.abs(totalPoints) > 0 ? totalPoints.toFixed(5) : totalPoints.toFixed(2);
-    if(document.getElementById('totalPips')) document.getElementById('totalPips').innerText = displayTotal;
-    
+    if(document.getElementById('totalPips')) document.getElementById('totalPips').innerText = totalPoints.toFixed(2);
     if(document.getElementById('activeTrades')) document.getElementById('activeTrades').innerText = active;
+    
+    // Color the total points
+    const pipsEl = document.getElementById('totalPips');
+    pipsEl.className = totalPoints >= 0 ? 'stat-val val-green' : 'stat-val c-red';
 }
 
-// Event Listeners
-document.getElementById('filterDate').addEventListener('change', applyFilters);
-document.getElementById('filterSymbol').addEventListener('keyup', applyFilters);
-document.getElementById('filterStatus').addEventListener('change', applyFilters);
+// --- UTILS ---
+function toggleSelectionMode() {
+    isSelectionMode = !isSelectionMode;
+    const checkboxes = document.querySelectorAll('.trade-checkbox');
+    const icon = document.getElementById('selectIcon');
+    
+    checkboxes.forEach(cb => cb.style.display = isSelectionMode ? 'block' : 'none');
+    icon.style.color = isSelectionMode ? '#007aff' : '';
+    if(!isSelectionMode) checkboxes.forEach(cb => cb.checked = false);
+}
+
+function getCheckedIds() {
+    return Array.from(document.querySelectorAll('.trade-checkbox:checked')).map(cb => cb.value);
+}
+
+async function deleteSelected() {
+    if (!isSelectionMode) { toggleSelectionMode(); return; }
+    const ids = getCheckedIds();
+    if (ids.length === 0) return;
+    
+    if(!confirm(`Delete ${ids.length} trades?`)) return;
+
+    try {
+        const res = await fetch('/api/delete_trades', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trade_ids: ids })
+        });
+        const result = await res.json();
+        if (result.success) toggleSelectionMode();
+    } catch (err) { console.error(err); }
+}
+
+// Listeners
+document.getElementById('filterDate').addEventListener('change', () => applyFilters());
+document.getElementById('filterSymbol').addEventListener('keyup', () => applyFilters());
+document.getElementById('filterStatus').addEventListener('change', () => applyFilters());
+document.getElementById('filterType').addEventListener('change', () => applyFilters());

@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http'); // Import HTTP
+const { Server } = require('socket.io'); // Import Socket.io
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const { pool, initDb } = require('./database');
@@ -8,6 +10,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public')); 
+
+// --- SOCKET.IO SETUP ---
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: "*" }
+});
 
 const bot = new TelegramBot(process.env.TG_BOT_TOKEN, { polling: false });
 const CHAT_ID = process.env.TG_CHAT_ID;
@@ -22,14 +30,8 @@ function getDBTime() {
     return new Date().toISOString(); 
 }
 
-// --- STANDARD POINT CALCULATOR (Raw Difference) ---
-// No 10000x multipliers. Just Price A - Price B.
 function calculatePoints(type, entry, currentPrice) {
     if (!entry || !currentPrice) return 0;
-    
-    // Simple Math:
-    // Buy Profit = Current - Entry
-    // Sell Profit = Entry - Current
     return (type === 'BUY') ? (currentPrice - entry) : (entry - currentPrice);
 }
 
@@ -60,6 +62,7 @@ app.post('/api/signal_detected', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, sentMsg.message_id, dbTime]);
 
+        io.emit('trade_update'); // <--- REAL-TIME UPDATE
         res.json({ success: true });
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
@@ -70,7 +73,6 @@ app.post('/api/setup_confirmed', async (req, res) => {
     const dbTime = getDBTime();
 
     try {
-        // Close old trades
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE') AND trade_id != $2",
             [symbol, trade_id]
@@ -82,7 +84,6 @@ app.post('/api/setup_confirmed', async (req, res) => {
             }
         }
 
-        // Update DB
         const check = await pool.query("SELECT telegram_msg_id FROM trades WHERE trade_id = $1", [trade_id]);
         let msgId = check.rows[0]?.telegram_msg_id;
 
@@ -97,18 +98,19 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // Reply to Thread
         const msg = `📋 **SETUP CONFIRMED**\nEntry: ${entry}\nSL: ${sl}\nTP1: ${tp1}\nTP2: ${tp2}\nTP3: ${tp3}`;
         const opts = { parse_mode: 'Markdown' };
         if (msgId) opts.reply_to_message_id = msgId;
 
         await bot.sendMessage(CHAT_ID, msg, opts);
+        
+        io.emit('trade_update'); // <--- REAL-TIME UPDATE
         res.json({ success: true });
 
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// 4. PRICE UPDATE (Floating PL only)
+// 4. PRICE UPDATE (Disabled in MT4, but keeping endpoint just in case)
 app.post('/api/price_update', async (req, res) => {
     const { symbol, bid, ask } = req.body;
     try {
@@ -120,11 +122,12 @@ app.post('/api/price_update', async (req, res) => {
             
             await pool.query("UPDATE trades SET points_gained = $1 WHERE id = $2", [points, t.id]);
         }
+        // NOTE: We do NOT emit socket here to avoid spamming updates every second.
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 5. INSTANT EVENT LOGGER (MT4 Master)
+// 5. INSTANT EVENT LOGGER
 app.post('/api/log_event', async (req, res) => {
     const { trade_id, new_status, price } = req.body;
     try {
@@ -138,18 +141,40 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // Show 5 decimals for Telegram alerts to handle raw Forex points correctly
         const msg = `⚡ **UPDATE: ${new_status}**\nPrice: ${price}\nProfit: ${points.toFixed(5)}`;
         const opts = { parse_mode: 'Markdown' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
 
         await bot.sendMessage(CHAT_ID, msg, opts);
+        
+        io.emit('trade_update'); // <--- REAL-TIME UPDATE
         res.json({ success: true });
 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// 6. BULK DELETE
+app.post('/api/delete_trades', async (req, res) => {
+    const { trade_ids } = req.body; 
+    
+    if (!trade_ids || !Array.isArray(trade_ids) || trade_ids.length === 0) {
+        return res.status(400).json({ success: false, msg: "No IDs provided" });
+    }
+
+    try {
+        const query = "DELETE FROM trades WHERE trade_id = ANY($1)";
+        await pool.query(query, [trade_ids]);
+        
+        io.emit('trade_update'); // <--- REAL-TIME UPDATE
+        res.json({ success: true });
+    } catch (err) { 
+        console.error(err); 
+        res.status(500).json({ error: err.message }); 
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 initDb().then(() => {
-    app.listen(PORT, () => console.log(`🚀 Trade Manager (Standard Points) running on ${PORT}`));
+    // IMPORTANT: Use server.listen instead of app.listen for Socket.io
+    server.listen(PORT, () => console.log(`🚀 Trade Manager (Socket.io) running on ${PORT}`));
 });
