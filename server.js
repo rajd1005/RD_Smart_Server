@@ -39,14 +39,15 @@ function calculatePoints(type, entry, currentPrice) {
 }
 
 // --- CONVERTER: Fixes Underscores & Special Chars for Markdown ---
-// This keeps your bot from crashing on symbols like #Brent_Crude
+// This function escapes characters that crash Telegram Markdown
+// e.g., converts "#Brent_Crude" to "#Brent\_Crude"
 function toMarkdown(text) {
     if (text === undefined || text === null) return "";
     return String(text)
-        .replace(/_/g, "\\_")  
-        .replace(/\*/g, "\\*") 
-        .replace(/\[/g, "\\[") 
-        .replace(/`/g, "\\`"); 
+        .replace(/_/g, "\\_")  // Fixes underscores in symbols
+        .replace(/\*/g, "\\*") // Fixes accidental bolding
+        .replace(/\[/g, "\\[") // Fixes broken links
+        .replace(/`/g, "\\`"); // Fixes code block errors
 }
 
 // --- API ENDPOINTS ---
@@ -66,11 +67,11 @@ app.post('/api/signal_detected', async (req, res) => {
     const dbTime = getDBTime(); 
 
     try {
-        // --- MATCHED STYLE: Clean Markdown ---
-        const msg = `🚨 **NEW SIGNAL DETECTED**\n\n` +
-                    `💎 **Symbol:** #${toMarkdown(symbol)}\n` +
-                    `📊 **Type:** ${toMarkdown(type)}\n` +
-                    `🕒 **Time:** ${toMarkdown(istTime)}`;
+        // ✅ FIXED: Using clean Markdown with \n for new lines
+        const msg = `🚨 *NEW SIGNAL DETECTED*\n\n` +
+                    `💎 *Symbol:* #${toMarkdown(symbol)}\n` +
+                    `📊 *Type:* ${toMarkdown(type)}\n` +
+                    `🕒 *Time:* ${toMarkdown(istTime)}`;
 
         const sentMsg = await bot.sendMessage(CHAT_ID, msg, { parse_mode: 'Markdown' });
         
@@ -86,34 +87,33 @@ app.post('/api/signal_detected', async (req, res) => {
     } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// 3. SETUP CONFIRMED (Refactored to match your request)
+// 3. SETUP CONFIRMED (Matched to your Reference Code)
 app.post('/api/setup_confirmed', async (req, res) => {
     const { trade_id, symbol, type, entry, sl, tp1, tp2, tp3 } = req.body;
     const dbTime = getDBTime();
 
     try {
-        // --- CHECK FOR REVERSAL ---
+        // --- CHECK FOR REVERSAL (Switching Sides) ---
         const oldTrades = await pool.query(
             "SELECT * FROM trades WHERE symbol = $1 AND status IN ('SIGNAL', 'SETUP', 'ACTIVE') AND trade_id != $2",
             [symbol, trade_id]
         );
         
         for (const t of oldTrades.rows) {
-            // Calculate final result of the old trade (using new entry as close price)
+            // Calculate final result of the old trade
             let closePrice = parseFloat(entry);
             let finalPoints = calculatePoints(t.type, t.entry_price, closePrice);
 
             // Update Old Trade in DB
             await pool.query("UPDATE trades SET status = 'CLOSED (Reversal)', points_gained = $1 WHERE trade_id = $2", [finalPoints, t.trade_id]);
             
-            // Notify closure (As requested in your reference)
+            // Notify closure
             if(t.telegram_msg_id) {
-                const revMsg = `🔄 **SWITCHING SIDES**\nOld Trade Closed. Result: ${finalPoints.toFixed(5)}`;
+                const revMsg = `🔄 *SWITCHING SIDES*\nOld Trade Closed. Result: ${finalPoints.toFixed(2)}`;
                 bot.sendMessage(CHAT_ID, revMsg, { reply_to_message_id: t.telegram_msg_id, parse_mode: 'Markdown' });
             }
         }
 
-        // --- UPDATE OR INSERT NEW TRADE ---
         const check = await pool.query("SELECT telegram_msg_id FROM trades WHERE trade_id = $1", [trade_id]);
         let msgId = check.rows[0]?.telegram_msg_id;
 
@@ -128,10 +128,10 @@ app.post('/api/setup_confirmed', async (req, res) => {
         `;
         await pool.query(query, [trade_id, symbol, type, entry, sl, tp1, tp2, tp3, dbTime]);
 
-        // --- STEP B: SETUP CONFIRMED MSG (Exact Reference Format) ---
-        // Using ** for bold and \n for new lines
-        const msg = `📋 **SETUP CONFIRMED**\n\n` + 
-                    `**${toMarkdown(symbol)}** (${toMarkdown(type)})\n` +
+        // ✅ FIXED: Exact Reference Style
+        // Using * for bold (Standard Telegram Markdown) and \n for newlines
+        const msg = `📋 *SETUP CONFIRMED*\n\n` + 
+                    `*${toMarkdown(symbol)}* (${toMarkdown(type)})\n` +
                     `Entry: ${toMarkdown(entry)}\n` + 
                     `SL: ${toMarkdown(sl)}\n\n` + 
                     `TP1: ${toMarkdown(tp1)}\n` + 
@@ -187,10 +187,10 @@ app.post('/api/log_event', async (req, res) => {
         
         await pool.query("UPDATE trades SET status = $1, points_gained = $2 WHERE trade_id = $3", [new_status, points, trade_id]);
 
-        // --- MATCHED STYLE: Clean Markdown ---
-        const msg = `⚡ **UPDATE: ${toMarkdown(new_status)}**\n\n` +
-                    `💎 **Symbol:** #${toMarkdown(trade.symbol)}\n` +
-                    `📉 **Price:** ${toMarkdown(price)}`;
+        // ✅ FIXED: Clean Markdown for Updates
+        const msg = `⚡ *UPDATE: ${toMarkdown(new_status)}*\n\n` +
+                    `💎 *Symbol:* #${toMarkdown(trade.symbol)}\n` +
+                    `📉 *Price:* ${toMarkdown(price)}`;
         
         const opts = { parse_mode: 'Markdown' };
         if (trade.telegram_msg_id) opts.reply_to_message_id = trade.telegram_msg_id;
