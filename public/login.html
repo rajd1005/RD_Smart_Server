@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RD Algo IND Stock & Index Login - Rd Algo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Roboto', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .login-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 380px; }
+        .login-card h3 { font-weight: 700; margin-bottom: 20px; text-align: center; }
+        .btn-primary { background-color: #007aff; border: none; font-weight: 600; padding: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <h4>RDA IND Stock & Index</h4>
+    <form id="loginForm">
+        <div class="mb-3">
+            <label class="form-label">Email ID (Student Email)</label>
+            <input type="email" id="email" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Password (Student Phone)</label>
+            <input type="password" id="password" class="form-control" required>
+        </div>
+        <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="rememberMe">
+            <label class="form-check-label" for="rememberMe">Save Password</label>
+        </div>
+        <div id="errorMsg" class="text-danger small mb-3 text-center" style="display:none;"></div>
+        <button type="submit" class="btn btn-primary w-100" id="loginBtn">Login</button>
+    </form>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const rememberMe = document.getElementById('rememberMe').checked;
+    const errorMsg = document.getElementById('errorMsg');
+    const loginBtn = document.getElementById('loginBtn');
+
+    loginBtn.disabled = true;
+    errorMsg.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, rememberMe })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+            // ✅ Save the user role (admin/student) to local storage
+            localStorage.setItem('userRole', data.role);
+            window.location.href = '/'; 
+        } else {
+            errorMsg.innerText = data.msg;
+            errorMsg.style.display = 'block';
+            loginBtn.disabled = false;
+        }
+    } catch (err) {
+        errorMsg.innerText = "Server connection error.";
+        errorMsg.style.display = 'block';
+        loginBtn.disabled = false;
+    }
+});
+</script>
+</body>
+</html>

@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Forex & Crypto - Rd Algo</title>
+    <title>IND Stock & Index - Rd Algo</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     
     <style>
@@ -19,12 +18,10 @@
         }
         body { background-color: var(--bg-color); font-family: 'Roboto', sans-serif; color: var(--text-primary); padding-bottom: 60px; font-size: 13px; -webkit-font-smoothing: antialiased; }
         
-        /* HEADER */
         .app-header { background: #fff; border-bottom: 1px solid var(--border-color); padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
         .app-title { font-size: 16px; font-weight: 700; color: #000; letter-spacing: -0.5px; }
         .server-time { font-size: 11px; color: var(--text-secondary); font-family: monospace; }
 
-        /* STATS */
         .stats-bar { background: #fff; padding: 10px 15px; display: flex; gap: 15px; overflow-x: auto; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; }
         .stats-bar::-webkit-scrollbar { display: none; }
         .stat-item { min-width: 80px; display: flex; flex-direction: column; }
@@ -33,7 +30,6 @@
         .val-green { color: var(--green); }
         .val-red { color: var(--red); }
 
-        /* TRADE CARDS */
         .trade-list { padding: 0 10px; }
         .trade-card { background: #fff; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); position: relative; }
         .tc-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -51,7 +47,6 @@
         .dt-lbl { font-size: 9px; color: var(--text-secondary); margin-bottom: 1px; }
         .dt-val { font-weight: 600; color: #333; }
 
-        /* NAV & FILTER */
         .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; border-top: 1px solid var(--border-color); padding: 8px 0; display: flex; justify-content: space-around; z-index: 999; }
         .b-btn { background: none; border: none; display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--text-secondary); font-weight: 500; }
         .b-btn .material-icons-round { font-size: 22px; margin-bottom: 2px; }
@@ -68,12 +63,17 @@
 </head>
 <body>
 
-<header class="app-header">
+    <header class="app-header">
         <div class="d-flex align-items-center">
-            <div class="app-title">Forex & Crypto</div>
+            <div class="app-title">IND Stock & Index</div>
             <div id="activeDateDisplay" style="font-size: 10px; background: #e3f2fd; color: var(--blue); padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 600;">Today</div>
         </div>
-        <div class="server-time" id="clock">00:00:00</div>
+        <div class="d-flex align-items-center">
+            <div class="server-time" id="clock" style="margin-right: 15px;">00:00:00</div>
+            <button onclick="logout()" style="background:none; border:none; color:var(--red); padding:0; display:flex; align-items:center;">
+                <span class="material-icons-round">logout</span>
+            </button>
+        </div>
     </header>
 
     <div class="stats-bar">
@@ -89,8 +89,8 @@
     <nav class="bottom-nav" id="navDefault">
         <button class="b-btn b-active" onclick="fetchTrades()"><span class="material-icons-round">refresh</span>Refresh</button>
         <button class="b-btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#filterSheet"><span class="material-icons-round">filter_list</span>Filter</button>
-        <button class="b-btn" onclick="toggleSelectionMode()"><span class="material-icons-round" id="selectIcon">check_circle</span>Select</button>
-        <button class="b-btn b-del" onclick="deleteSelected()"><span class="material-icons-round">delete</span>Delete</button>
+        <button class="b-btn" id="btnSelect" onclick="toggleSelectionMode()" style="display:none;"><span class="material-icons-round" id="selectIcon">check_circle</span>Select</button>
+        <button class="b-btn b-del" id="btnDelete" onclick="deleteSelected()" style="display:none;"><span class="material-icons-round">delete</span>Delete</button>
     </nav>
 
     <nav class="bottom-nav" id="navSelection" style="display:none;">
