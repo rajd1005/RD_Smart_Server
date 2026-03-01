@@ -3,10 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RD MT4 FOREX - Rd Algo</title>
+    <title>RD MT4 IND - Rd Algo</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     
     <style>
         :root {
@@ -66,8 +68,11 @@
 </head>
 <body>
 
-    <header class="app-header">
-        <div class="app-title">RD MT4 FOREX</div>
+<header class="app-header">
+        <div class="d-flex align-items-center">
+            <div class="app-title">RD MT4 IND</div>
+            <div id="activeDateDisplay" style="font-size: 10px; background: #e3f2fd; color: var(--blue); padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 600;">Today</div>
+        </div>
         <div class="server-time" id="clock">00:00:00</div>
     </header>
 
@@ -103,21 +108,27 @@
     <div class="offcanvas offcanvas-bottom" tabindex="-1" id="filterSheet">
         <div class="offcanvas-header pb-0"><h6 class="offcanvas-title fw-bold">Filter Options</h6><button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas"></button></div>
         <div class="offcanvas-body pt-2">
-            <div class="row g-2">
-                <div class="col-6"><label class="form-label">DATE</label><input type="date" id="filterDate" class="form-control"></div>
+        <div class="row g-2">
+                <div class="col-12">
+                    <label class="form-label">DATE / RANGE</label>
+                    <input type="text" id="filterDateRange" class="form-control" placeholder="Select Date(s)..." style="background-color: #fff;">
+                </div>
+                
                 <div class="col-6"><label class="form-label">TYPE</label><select id="filterType" class="form-select"><option value="ALL">All</option><option value="BUY">Buy</option><option value="SELL">Sell</option></select></div>
+                <div class="col-6"><label class="form-label">STATUS</label><select id="filterStatus" class="form-select"><option value="ALL">All</option><option value="OPEN">Running</option><option value="TP">Profitable</option><option value="SL">Loss</option></select></div>
+                
                 <div class="col-12"><label class="form-label">SYMBOL</label>
                     <select id="filterSymbol" class="form-select">
                         <option value="">All Symbols</option>
                     </select>
                 </div>
-                <div class="col-12"><label class="form-label">STATUS</label><select id="filterStatus" class="form-select"><option value="ALL">All</option><option value="OPEN">Running</option><option value="TP">Profitable</option><option value="SL">Loss</option></select></div>
             </div>
             <button class="btn btn-primary w-100 mt-3 fw-bold" data-bs-dismiss="offcanvas" onclick="applyFilters()">Apply</button>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>
     <script>setInterval(() => { document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB'); }, 1000);</script>

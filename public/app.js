@@ -2,18 +2,29 @@ const API_URL = '/api/trades';
 let allTrades = []; 
 let isSelectionMode = false;
 const socket = io(); 
+let datePicker;
 
 window.onload = function() {
-    setTodayDate();
+    initDatePicker();
     fetchTrades();
 };
 
-socket.on('trade_update', () => { fetchTrades(); });
-
-function setTodayDate() {
-    const istDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    document.getElementById('filterDate').value = istDate;
+function initDatePicker() {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    
+    // Initialize Flatpickr in range mode
+    datePicker = flatpickr("#filterDateRange", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        defaultDate: today, // Set today as default
+        onChange: function() {
+            // Instantly apply filters when user selects a date/range
+            applyFilters(); 
+        }
+    });
 }
+
+socket.on('trade_update', () => { fetchTrades(); });
 
 async function fetchTrades() {
     const checkedIds = getCheckedIds();
@@ -45,41 +56,98 @@ function applyFilters(preserveIds = []) {
     const filterSymbol = document.getElementById('filterSymbol').value;
     const filterStatus = document.getElementById('filterStatus').value;
     const filterType = document.getElementById('filterType').value;
-    const filterDateInput = document.getElementById('filterDate').value; 
+    
+    // Extract dates from Flatpickr
+    let startDate = "";
+    let endDate = "";
+    if (datePicker && datePicker.selectedDates.length > 0) {
+        const formatOpts = { timeZone: 'Asia/Kolkata' };
+        startDate = datePicker.selectedDates[0].toLocaleDateString('en-CA', formatOpts);
+        // If it's a single date, end date is the same. If range, use the second date.
+        endDate = datePicker.selectedDates.length === 2 
+            ? datePicker.selectedDates[1].toLocaleDateString('en-CA', formatOpts) 
+            : startDate;
+    }
 
-    const filtered = allTrades.filter(trade => {
+    // --- Update Header Text ---
+    const dateDisplay = document.getElementById('activeDateDisplay');
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    
+    if (!startDate && !endDate) {
+        dateDisplay.innerText = "All Time";
+    } else if (startDate === endDate) {
+        dateDisplay.innerText = (startDate === todayStr) ? "Today" : startDate;
+    } else {
+        const startText = startDate ? startDate.substring(5) : "Past"; 
+        const endText = endDate ? endDate.substring(5) : "Now";
+        dateDisplay.innerText = `${startText} to ${endText}`;
+    }
+
+    // --- BATCH PROCESSING (Fast Local Filtering) ---
+    const filtered = allTrades.reduce((acc, trade) => {
         const tradeDateObj = new Date(trade.created_at);
         const tradeDateStr = tradeDateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-        return ((filterDateInput === "") || (tradeDateStr === filterDateInput)) &&
-               (filterSymbol === "" || trade.symbol === filterSymbol) &&
-               (filterType === 'ALL' || trade.type === filterType) &&
-               (filterStatus === 'ALL' || 
-               (filterStatus === 'TP' && trade.status.includes('TP')) ||
-               (filterStatus === 'SL' && trade.status.includes('SL')) ||
-               (filterStatus === 'OPEN' && trade.status === 'ACTIVE'));
-    });
+        // 1. Fast Date Match Check
+        let dateMatch = true;
+        if (startDate && endDate) dateMatch = (tradeDateStr >= startDate && tradeDateStr <= endDate);
+        else if (startDate) dateMatch = (tradeDateStr >= startDate);
+        else if (endDate) dateMatch = (tradeDateStr <= endDate);
+
+        if (!dateMatch) return acc; // Skip instantly if date doesn't match
+
+        // 2. AUTO-CLOSE Old Active Trades
+        let displayStatus = trade.status;
+        let isVisuallyActive = (trade.status === 'ACTIVE' || trade.status === 'SETUP');
+        
+        if (isVisuallyActive && tradeDateStr < todayStr) {
+            isVisuallyActive = false; 
+            const pts = parseFloat(trade.points_gained || 0);
+            if (pts > 0) displayStatus = 'PROFIT (CLOSED)';
+            else if (pts < 0) displayStatus = 'LOSS (CLOSED)';
+            else displayStatus = 'CLOSED (BREAKEVEN)';
+        }
+
+        // 3. Apply Dropdown Filters
+        const typeMatch = (filterType === 'ALL' || trade.type === filterType);
+        const symbolMatch = (filterSymbol === "" || trade.symbol === filterSymbol);
+        
+        let statusMatch = true;
+        if (filterStatus === 'TP') statusMatch = (displayStatus.includes('TP') || displayStatus.includes('PROFIT'));
+        else if (filterStatus === 'SL') statusMatch = (displayStatus.includes('SL') || displayStatus.includes('LOSS'));
+        else if (filterStatus === 'OPEN') statusMatch = isVisuallyActive;
+
+        if (typeMatch && symbolMatch && statusMatch) {
+            acc.push({ ...trade, displayStatus, isVisuallyActive, tradeDateObj });
+        }
+        
+        return acc;
+    }, []);
 
     renderTrades(filtered, preserveIds);
     calculateStats(filtered);
 }
 
+// --- 2. BLAZING FAST RENDERING & DATE DISPLAY ---
 function renderTrades(trades, preserveIds) {
     const container = document.getElementById('tradeListContainer');
     const noDataMsg = document.getElementById('noData');
     
-    container.innerHTML = '';
-    
     if (trades.length === 0) {
+        container.innerHTML = '';
         if(noDataMsg) noDataMsg.style.display = 'block';
         return;
     } else {
         if(noDataMsg) noDataMsg.style.display = 'none';
     }
 
+    // Accumulating HTML into a string for a single fast render
+    let htmlContent = '';
+
     trades.forEach((trade) => {
-        const dateObj = new Date(trade.created_at);
-        const timeString = dateObj.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+        // NEW: Formatting Date and Time separately
+        const dateString = trade.tradeDateObj.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' }); 
+        const timeString = trade.tradeDateObj.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
         
         const entry = parseFloat(trade.entry_price).toFixed(2);
         const sl = parseFloat(trade.sl_price).toFixed(2);
@@ -91,11 +159,12 @@ function renderTrades(trades, preserveIds) {
 
         let profitColor = 'text-muted';
         let statusColor = '#878a8d';
-        let statusText = trade.status.replace(' (Reversal)', '');
+        let statusText = trade.displayStatus.replace(' (Reversal)', '');
         
-        if (trade.status === 'ACTIVE') { statusColor = '#007aff'; }
-        else if (trade.status.includes('TP')) { statusColor = '#00b346'; profitColor = 'c-green'; }
-        else if (trade.status.includes('SL')) { statusColor = '#ff3b30'; profitColor = 'c-red'; }
+        // Colors updated to use the new "Visually Active" logic
+        if (trade.isVisuallyActive) { statusColor = '#007aff'; }
+        else if (statusText.includes('TP') || statusText.includes('PROFIT')) { statusColor = '#00b346'; profitColor = 'c-green'; }
+        else if (statusText.includes('SL') || statusText.includes('LOSS')) { statusColor = '#ff3b30'; profitColor = 'c-red'; }
         else if (pts > 0) { profitColor = 'c-green'; }
         else if (pts < 0) { profitColor = 'c-red'; }
 
@@ -103,7 +172,7 @@ function renderTrades(trades, preserveIds) {
         const isChecked = preserveIds.includes(trade.trade_id) ? 'checked' : '';
         const checkDisplay = isSelectionMode ? 'block' : 'none';
 
-        const html = `
+        htmlContent += `
             <div class="trade-card">
                 <div class="tc-top">
                     <div class="d-flex align-items-center">
@@ -114,7 +183,7 @@ function renderTrades(trades, preserveIds) {
                 </div>
                 <div class="tc-mid">
                     <span class="type-badge ${badgeClass}">${trade.type}</span>
-                    <span class="tc-time">${timeString}</span>
+                    <span class="tc-time">${dateString} • ${timeString}</span>
                     <span class="status-txt ms-auto" style="color:${statusColor}">${statusText}</span>
                 </div>
                 <div class="tc-bot">
@@ -125,15 +194,20 @@ function renderTrades(trades, preserveIds) {
                     <div class="dt-item"><span class="dt-lbl">TP3</span><span class="dt-val">${tp3}</span></div>
                 </div>
             </div>`;
-        container.innerHTML += html;
     });
+    
+    // Inject the final HTML instantly
+    container.innerHTML = htmlContent;
 }
 
+// --- 3. ACCURATE STATS BASED ON AUTO-CLOSED TRADES ---
 function calculateStats(trades) {
     let totalPoints = 0; let wins = 0; let losses = 0; let active = 0;
     trades.forEach(t => {
-        if (t.status === 'ACTIVE' || t.status === 'SETUP') active++;
-        else {
+        if (t.isVisuallyActive) {
+            active++;
+        } else {
+            // Calculates points for past active trades that are now closed
             const pts = parseFloat(t.points_gained);
             totalPoints += pts;
             if (pts > 0) wins++; else if (pts < 0) losses++;
@@ -212,7 +286,7 @@ async function deleteSelected() {
     } catch (err) { console.error(err); }
 }
 
-document.getElementById('filterDate').addEventListener('change', () => applyFilters());
+// Keep the others:
 document.getElementById('filterSymbol').addEventListener('change', () => applyFilters());
 document.getElementById('filterStatus').addEventListener('change', () => applyFilters());
 document.getElementById('filterType').addEventListener('change', () => applyFilters());
